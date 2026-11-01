@@ -11,7 +11,7 @@ type SourceResult = { available: boolean; count: number; records?: unknown[]; er
 
 const MASTER_SHEET_ID = "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw";
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbxol0amPbjcB1fU6xd-1p1ukfrmmAgvLfZL7d3FlhCsxIYfa03j8cAOv9TpgeE1_euq2Q/exec";
+  "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
 
 function gasConfig() {
   const token = process.env["API_TOKEN"];
