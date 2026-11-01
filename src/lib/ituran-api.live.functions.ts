@@ -20,7 +20,7 @@ export type IturanPtoResponse = {
 };
 
 // כתובת ה-Deployment של ה-Apps Script שלך
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyFd-7TomkcM1lXHWhgfO9GD1yRsz-3hf8CSw5qkJK_d9vZx9kGy8dr_6EszJR0r1-XRg/exec";
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
 
 /**
  * שליפת אירועי PTO (פתיחת מנוף) מהשרת לפי מספר משאית או נהג
