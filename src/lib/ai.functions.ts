@@ -355,8 +355,9 @@ async function sleepMs(ms: number): Promise<void> {
 /**
  * Gemini עם:
  * - סיבוב מפתחות: GEMINI_API_KEYS או GEMINI_API_KEY
- * - מודלים גיבוי: GEMINI_MODELS (ברירת מחדל flash)
+ * - מודלים גיבוי: GEMINI_MODELS (ברירת מחדל 2.5 flash + lite)
  * - retry + exponential backoff על 429 / 503 ורשת
+ * - דילוג מיידי על 404 (מודל לא קיים)
  */
 async function callGemini(instructions: string, input: Msg[]): Promise<string> {
   const keys = (process.env["GEMINI_API_KEYS"] || process.env["GEMINI_API_KEY"] || "")
@@ -367,7 +368,8 @@ async function callGemini(instructions: string, input: Msg[]): Promise<string> {
     throw new Error("שירות הבינה אינו מוגדר בשרת: חסר GEMINI_API_KEY");
   }
 
-  const models = (process.env["GEMINI_MODELS"] || "gemini-2.5-flash,gemini-2.0-flash")
+  // gemini-2.0-flash הוסר (404). ברירת מחדל: 2.5 flash + lite
+  const models = (process.env["GEMINI_MODELS"] || "gemini-2.5-flash,gemini-2.5-flash-lite")
     .split(",")
     .map((m) => m.trim())
     .filter(Boolean);
@@ -425,6 +427,16 @@ async function callGemini(instructions: string, input: Msg[]): Promise<string> {
     lastStatus = response.status;
     lastDetail = (await response.text()).slice(0, 180);
 
+    // 404 = שם מודל לא קיים / הוסר — עבור מיד למודל הבא
+    if (response.status === 404) {
+      if (attempt < maxAttempts - 1 && attempt + 1 < models.length * 2) {
+        continue;
+      }
+      throw new Error(
+        `מודל הבינה לא נמצא (404). בדקו GEMINI_MODELS ב-Vercel — השתמשו ב-gemini-2.5-flash או gemini-2.5-flash-lite.`,
+      );
+    }
+
     if (response.status === 429 || response.status === 503) {
       if (attempt < maxAttempts - 1) {
         await sleepMs(900 * Math.pow(2, attempt));
@@ -435,7 +447,7 @@ async function callGemini(instructions: string, input: Msg[]): Promise<string> {
       );
     }
 
-    throw new Error(`שירות הבינה החזיר שגיאה (${response.status})`);
+    throw new Error(`שירות הבינה החזיר שגיאה (${response.status}) · מודל: ${model}`);
   }
 
   throw new Error(
