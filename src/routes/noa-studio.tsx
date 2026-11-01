@@ -562,9 +562,9 @@ function NoaStudioScreen() {
       time: now(),
       statusTag: "מקורות נתונים מחוברים",
       text:
-        "שלום ראמי והראל! נועה כאן בחמ״ל ❤️\n" +
-        "מחוברת לתיק לקוח _PTO.\n" +
-        "אפשר לשאול לפי מספר תעודה, לקוח, אתר, פתיחות מנוף או חריגות — רק לרשום מה צריך .",
+        "שלום ראמי או הראל! נועה כאן לכל פניה ❤️\n" +
+        "מחוברת לתיק לקוח .\n" +
+        "אפשר לשאול לפי מספר תעודה, לקוח, אתר אספקה, פתיחות מנוף או חריגות — רק לרשום מה צריך .",
       quickActions: [
         {
           id: "w1",
@@ -639,7 +639,7 @@ function NoaStudioScreen() {
       {
         id: `sys-${Date.now()}`,
         sender: "noa",
-        text: "✓ החריגה סומנה כנבדקה ע״י ראמי מסארווה.",
+        text: " ✅ החריגה סומנה כנבדקה ע״י ראמי מסארווה.",
         time: now(),
         statusTag: "אושר ע״י ראמי",
       },
@@ -741,7 +741,7 @@ function NoaStudioScreen() {
     const noteIds = matchedNotes.slice(0, 8).map((n) => n.id);
     pushNoa({
       text:
-        `📍 ביקורים / PTO` +
+        `📍🗺️ ביקורים / PTO` +
         (addrHint ? ` · אתר: ${addrHint}` : "") +
         (custHint ? ` · לקוח: ${custHint}` : "") +
         `\n\n` +
@@ -855,7 +855,7 @@ function NoaStudioScreen() {
         quickActions: [
           {
             id: "v1",
-            label: "ביקורים באתר",
+            label: "📍🗺️ביקורים באתר",
             query: foundNote.siteAddress
               ? `כמה ביקורים / פתיחות מנוף היו באתר ${foundNote.siteAddress}?`
               : "כמה פעמים נפתח מנוף לפי טאב איתוראן PTO?",
