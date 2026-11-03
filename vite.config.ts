@@ -17,5 +17,28 @@ export default defineConfig({
       host: "0.0.0.0",
       port: 3000,
     },
+    // Konva's node entry imports the native `canvas` package. We only use Konva in the browser.
+    // Externalize so Nitro/SSR does not try to resolve/bind native canvas on Vercel.
+    ssr: {
+      external: ["canvas", "konva"],
+    },
+    optimizeDeps: {
+      exclude: ["canvas"],
+    },
+    build: {
+      rollupOptions: {
+        external: ["canvas"],
+      },
+      // Vite 8 / Rolldown path used by Nitro server bundle
+      rolldownOptions: {
+        external: ["canvas"],
+      },
+    },
+  },
+  // Nitro (Vercel preset) — keep native canvas out of the server function graph
+  nitro: {
+    externals: {
+      external: ["canvas", "konva"],
+    },
   },
 });
