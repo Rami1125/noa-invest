@@ -6,6 +6,9 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+/** Native node-canvas pulled by konva's Node entry — never ship on Vercel serverless. */
+const KONVA_NATIVE_EXTERNALS = ["canvas", "konva", "react-konva"] as const;
+
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
@@ -17,28 +20,32 @@ export default defineConfig({
       host: "0.0.0.0",
       port: 3000,
     },
-    // Konva's node entry imports the native `canvas` package. We only use Konva in the browser.
-    // Externalize so Nitro/SSR does not try to resolve/bind native canvas on Vercel.
+    // Browser-only drawing stack — keep native `canvas` / Node konva entry out of SSR graph
     ssr: {
-      external: ["canvas", "konva"],
+      external: [...KONVA_NATIVE_EXTERNALS],
+      noExternal: [],
     },
     optimizeDeps: {
       exclude: ["canvas"],
+      include: ["konva", "react-konva"],
+    },
+    resolve: {
+      // Prefer browser build of konva when the bundler can choose
+      conditions: ["browser", "module", "import", "default"],
     },
     build: {
       rollupOptions: {
         external: ["canvas"],
       },
-      // Vite 8 / Rolldown path used by Nitro server bundle
       rolldownOptions: {
         external: ["canvas"],
       },
     },
   },
-  // Nitro (Vercel preset) — keep native canvas out of the server function graph
   nitro: {
     externals: {
-      external: ["canvas", "konva"],
+      external: [...KONVA_NATIVE_EXTERNALS],
     },
+    moduleSideEffects: false,
   },
 });
