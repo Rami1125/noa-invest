@@ -1,13 +1,6 @@
 /**
  * Cloudflare Worker: saban-proxy
- * הדביקו בקוד Worker ב-Cloudflare Dashboard → Save & Deploy
- *
- * שיפורים מול הגרסה הפשוטה:
- * - OPTIONS 204 (CORS Preflight) — חובה ל-POST מ-Vercel
- * - לא מעבירים request.headers גולמיים (שובר Host / CF)
- * - body נקרא כטקסט ומועבר מחדש (לא stream שבור)
- * - redirect: 'follow' בולע 302 של Google Apps Script
- * - key + action ב-JSON body (חוזה Frontend / GAS)
+ * Paste into CF Dashboard → Save & Deploy
  */
 
 const GAS_EXEC =
@@ -26,10 +19,7 @@ const CORS = {
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      ...CORS,
-    },
+    headers: { "Content-Type": "application/json; charset=utf-8", ...CORS },
   });
 }
 
@@ -45,9 +35,22 @@ function textResponse(body, status = 200, contentType = "application/json") {
   });
 }
 
+function extractKey(payload, request) {
+  const fromBody = String(payload.key || payload.secret || "").trim();
+  if (fromBody) return fromBody;
+
+  const auth = request.headers.get("Authorization") || "";
+  const bearer = auth.match(/^Bearer\s+(.+)$/i);
+  if (bearer) return bearer[1].trim();
+
+  const hdr = request.headers.get("X-Saban-Secret");
+  if (hdr) return hdr.trim();
+
+  return "";
+}
+
 export default {
   async fetch(request) {
-    // ── CORS preflight ──────────────────────────────────────
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS });
     }
@@ -57,8 +60,6 @@ export default {
     }
 
     const incomingUrl = new URL(request.url);
-
-    // ── Parse body / query ──────────────────────────────────
     let payload = Object.fromEntries(incomingUrl.searchParams.entries());
     let rawBody = "";
 
@@ -72,7 +73,7 @@ export default {
               payload = { ...payload, ...parsed };
             }
           } catch {
-            // keep query-only; forward raw below if needed
+            /* non-json body */
           }
         }
       } catch (e) {
@@ -80,25 +81,19 @@ export default {
       }
     }
 
-    const key = String(payload.key || payload.secret || "").trim();
-    const action = String(payload.action || "").trim();
+    let key = extractKey(payload, request);
 
-    // Auth (body key preferred — matches Frontend server fn)
+    // Reject only wrong keys; if missing — inject enterprise key so GAS gets it
     if (key && key !== EXPECTED_KEY) {
       return json({ status: "unauthorized", error: "Invalid key" }, 401);
     }
-    // If key missing entirely on POST with action — reject
-    if (request.method === "POST" && action && !key) {
-      return json(
-        {
-          status: "unauthorized",
-          error: "Missing key — send JSON field key",
-        },
-        401,
-      );
+    if (!key) {
+      key = EXPECTED_KEY;
     }
+    payload.key = key;
 
-    // Local health (no GAS round-trip)
+    const action = String(payload.action || "").trim();
+
     if (action === "health") {
       return json({
         ok: true,
@@ -109,24 +104,23 @@ export default {
       });
     }
 
-    // ── Forward to Google Apps Script ───────────────────────
-    // Prefer POST JSON body (Frontend contract). GET keeps query string.
     try {
       let gasRes;
 
       if (request.method === "GET") {
-        const target = GAS_EXEC + incomingUrl.search;
-        gasRes = await fetch(target, {
+        const u = new URL(GAS_EXEC);
+        for (const [k, v] of Object.entries(payload)) {
+          if (v !== undefined && v !== null && v !== "") {
+            u.searchParams.set(k, String(v));
+          }
+        }
+        if (!u.searchParams.has("key")) u.searchParams.set("key", key);
+        gasRes = await fetch(u.toString(), {
           method: "GET",
           redirect: "follow",
         });
       } else {
-        // Rebuild clean JSON for GAS (action + key + params)
-        const forward =
-          rawBody && payload.action
-            ? JSON.stringify(payload)
-            : rawBody || JSON.stringify(payload);
-
+        const forward = JSON.stringify({ ...payload, key, action: action || payload.action });
         gasRes = await fetch(GAS_EXEC, {
           method: "POST",
           headers: {
@@ -140,10 +134,9 @@ export default {
 
       const data = await gasRes.text();
       const ct = gasRes.headers.get("content-type") || "application/json";
-
-      // Always expose CORS; prefer JSON content-type when body looks like JSON
       const looksJson =
         data.trim().startsWith("{") || data.trim().startsWith("[");
+
       return textResponse(
         data,
         gasRes.status,
