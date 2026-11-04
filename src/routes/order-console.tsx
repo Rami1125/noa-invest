@@ -1,5 +1,6 @@
 /**
  * דף א': מרכז הזמנות חדשות (New Order Console)
+ * Gateway: preview_order(itemsJson) · inject_order(...) · lookup_catalog(q)
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -21,7 +22,7 @@ import {
 import {
   previewOrder,
   injectOrder,
-  searchCatalog,
+  lookupCatalog,
   estimateDepositsLocal,
   type CatalogItem,
   type OrderLineInput,
@@ -41,9 +42,10 @@ function OrderConsolePage() {
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [unloadType, setUnloadType] = useState<Unload>("crane");
-  const [requestedAt, setRequestedAt] = useState("");
-  const [driverNotes, setDriverNotes] = useState("");
+  const [unloadingType, setUnloadingType] = useState<Unload>("crane");
+  const [requestedTime, setRequestedTime] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [notes, setNotes] = useState("");
   const [skuQuery, setSkuQuery] = useState("");
   const [suggestions, setSuggestions] = useState<CatalogItem[]>([]);
   const [searching, setSearching] = useState(false);
@@ -62,7 +64,7 @@ function OrderConsolePage() {
     }
     setSearching(true);
     try {
-      const res = await searchCatalog(q.trim());
+      const res = await lookupCatalog(q.trim());
       const items = res.items || res.products || [];
       setSuggestions(items.slice(0, 12));
     } catch (err) {
@@ -85,12 +87,7 @@ function OrderConsolePage() {
       }
       return [
         ...prev,
-        {
-          sku: item.sku,
-          name: item.name,
-          qty: 1,
-          unit: item.unit,
-        },
+        { sku: item.sku, name: item.name, qty: 1, unit: item.unit },
       ];
     });
     setSkuQuery("");
@@ -105,15 +102,8 @@ function OrderConsolePage() {
     );
   };
 
-  const buildPayload = () => ({
-    customerName: customerName.trim(),
-    phone: phone.trim(),
-    address: address.trim(),
-    unloadType,
-    requestedAt: requestedAt || undefined,
-    driverNotes: driverNotes.trim() || undefined,
-    items: lines.map(({ sku, name, qty, unit }) => ({ sku, name, qty, unit })),
-  });
+  const itemsPayload = () =>
+    lines.map(({ sku, name, qty, unit }) => ({ sku, name, qty, unit }));
 
   const validate = () => {
     if (!customerName.trim()) return "חסר שם לקוח";
@@ -123,15 +113,14 @@ function OrderConsolePage() {
   };
 
   const onPreview = async () => {
-    const err = validate();
-    if (err) {
-      toast.error(err);
+    if (!lines.length) {
+      toast.error("הוסיפו פריטים לתצוגה מקדימה");
       return;
     }
     setBusy("preview");
     setInjectResult(null);
     try {
-      const res = await previewOrder(buildPayload());
+      const res = await previewOrder({ items: itemsPayload() });
       setPreview(res);
       toast.success("תצוגה מקדימה מוכנה");
     } catch (e) {
@@ -152,7 +141,16 @@ function OrderConsolePage() {
     }
     setBusy("inject");
     try {
-      const res = await injectOrder(buildPayload());
+      const res = await injectOrder({
+        customerName: customerName.trim(),
+        phone: phone.trim() || undefined,
+        address: address.trim(),
+        unloadingType,
+        requestedTime: requestedTime || undefined,
+        contactName: contactName.trim() || undefined,
+        notes: notes.trim() || undefined,
+        items: itemsPayload(),
+      });
       setInjectResult(res);
       toast.success("ההזמנה שודרה לגיליון");
     } catch (e) {
@@ -166,13 +164,14 @@ function OrderConsolePage() {
 
   const weightTons =
     preview?.totalWeightTons ??
+    preview?.weightTons ??
     (preview?.weightKg != null ? Number(preview.weightKg) / 1000 : null);
 
   return (
     <div dir="rtl">
       <PageHeader
         title="מרכז הזמנות חדשות"
-        subtitle="תצוגה מקדימה · שידור לגיליון · מילון לוגיסטי"
+        subtitle="preview_order · inject_order · lookup_catalog"
       />
       <div className="mx-auto max-w-5xl space-y-4 px-4 py-5 md:px-8">
         <Card className="space-y-4 rounded-2xl p-4 md:p-5">
@@ -180,37 +179,21 @@ function OrderConsolePage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1 text-xs font-bold">
               שם לקוח *
-              <Input
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="שם לקוח / חברה"
-                className="h-10"
-              />
+              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="שם לקוח / חברה" className="h-10" />
             </label>
             <label className="space-y-1 text-xs font-bold">
               טלפון
-              <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="05..."
-                className="h-10"
-                inputMode="tel"
-              />
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05... / 972..." className="h-10" inputMode="tel" />
             </label>
             <label className="space-y-1 text-xs font-bold sm:col-span-2">
               כתובת אספקה מלאה *
-              <Input
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="רחוב, מספר, עיר / אתר"
-                className="h-10"
-              />
+              <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="רחוב, מספר, עיר / אתר" className="h-10" />
             </label>
             <label className="space-y-1 text-xs font-bold">
-              סוג פריקה
+              סוג פריקה (unloadingType)
               <select
-                value={unloadType}
-                onChange={(e) => setUnloadType(e.target.value as Unload)}
+                value={unloadingType}
+                onChange={(e) => setUnloadingType(e.target.value as Unload)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="crane">מנוף</option>
@@ -219,35 +202,29 @@ function OrderConsolePage() {
               </select>
             </label>
             <label className="space-y-1 text-xs font-bold">
-              מועד מבוקש
-              <Input
-                type="datetime-local"
-                value={requestedAt}
-                onChange={(e) => setRequestedAt(e.target.value)}
-                className="h-10"
-              />
+              מועד מבוקש (requestedTime)
+              <Input type="datetime-local" value={requestedTime} onChange={(e) => setRequestedTime(e.target.value)} className="h-10" />
             </label>
-            <label className="space-y-1 text-xs font-bold sm:col-span-2">
-              הערות נהג
-              <Input
-                value={driverNotes}
-                onChange={(e) => setDriverNotes(e.target.value)}
-                placeholder="גישה, שעות, איש קשר באתר…"
-                className="h-10"
-              />
+            <label className="space-y-1 text-xs font-bold">
+              איש קשר באתר (contactName)
+              <Input value={contactName} onChange={(e) => setContactName(e.target.value)} className="h-10" />
+            </label>
+            <label className="space-y-1 text-xs font-bold">
+              הערות (notes)
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="גישה, שעות…" className="h-10" />
             </label>
           </div>
         </Card>
 
         <Card className="space-y-3 rounded-2xl p-4 md:p-5">
           <h2 className="flex items-center gap-2 text-sm font-extrabold">
-            <PackagePlus className="h-4 w-4" /> בחירת מוצרים (מילון_לוגיסט)
+            <PackagePlus className="h-4 w-4" /> בחירת מוצרים (lookup_catalog)
           </h2>
           <div className="relative">
             <Input
               value={skuQuery}
               onChange={(e) => void searchProducts(e.target.value)}
-              placeholder="מק\"ט, שם, סלנג (מלט, בלה חול, סומסום…)"
+              placeholder='מק"ט / סלנג: מלט, בלה חול, סומסום…'
               className="h-11"
             />
             {searching && (
@@ -262,9 +239,7 @@ function OrderConsolePage() {
                       className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-start text-sm hover:bg-muted"
                       onClick={() => addLine(s)}
                     >
-                      <span className="font-bold">
-                        {s.sku} · {s.name}
-                      </span>
+                      <span className="font-bold">{s.sku} · {s.name}</span>
                       <span className="text-[11px] text-muted-foreground">
                         {[s.category, s.unit, s.warehouse].filter(Boolean).join(" · ")}
                       </span>
@@ -280,64 +255,30 @@ function OrderConsolePage() {
           ) : (
             <div className="space-y-2">
               {lines.map((l) => (
-                <div
-                  key={l.sku}
-                  className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 px-3 py-2"
-                >
+                <div key={l.sku} className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 px-3 py-2">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-bold">
-                      {l.sku} · {l.name}
-                    </div>
+                    <div className="truncate text-sm font-bold">{l.sku} · {l.name}</div>
                   </div>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={l.qty}
-                    onChange={(e) => setQty(l.sku, Number(e.target.value) || 0)}
-                    className="h-9 w-20"
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-9 w-9 p-0"
-                    onClick={() => setQty(l.sku, 0)}
-                  >
+                  <Input type="number" min={1} value={l.qty} onChange={(e) => setQty(l.sku, Number(e.target.value) || 0)} className="h-9 w-20" />
+                  <Button size="sm" variant="ghost" className="h-9 w-9 p-0" onClick={() => setQty(l.sku, 0)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               ))}
               <p className="text-[11px] text-muted-foreground">
-                אומדן מקומי: {localDep.bags} יח׳ · פיקדון בלות/משטחים ≈ {localDep.bales60002}{" "}
-                (סף {localDep.thresholdBags})
+                אומדן מקומי: {localDep.bags} יח׳ · פיקדון ≈ {localDep.bales60002} (סף {localDep.thresholdBags})
               </p>
             </div>
           )}
         </Card>
 
         <div className="flex flex-wrap gap-2">
-          <Button
-            className="min-h-11 gap-2 font-bold"
-            variant="outline"
-            disabled={busy !== null}
-            onClick={() => void onPreview()}
-          >
-            {busy === "preview" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Eye className="h-4 w-4" />
-            )}
+          <Button className="min-h-11 gap-2 font-bold" variant="outline" disabled={busy !== null} onClick={() => void onPreview()}>
+            {busy === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
             תצוגה מקדימה
           </Button>
-          <Button
-            className="min-h-11 gap-2 font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
-            disabled={busy !== null}
-            onClick={() => void onInject()}
-          >
-            {busy === "inject" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
+          <Button className="min-h-11 gap-2 font-bold bg-emerald-600 hover:bg-emerald-700 text-white" disabled={busy !== null} onClick={() => void onInject()}>
+            {busy === "inject" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             שדר הזמנה לגיליון
           </Button>
         </div>
@@ -348,30 +289,11 @@ function OrderConsolePage() {
               <Scale className="h-4 w-4" /> תצוגה מקדימה · preview_order
             </div>
             <div className="grid gap-2 sm:grid-cols-3">
-              <Metric
-                label="משקל כולל"
-                value={
-                  weightTons != null && !Number.isNaN(weightTons)
-                    ? `${Number(weightTons).toFixed(2)} טון`
-                    : "—"
-                }
-              />
-              <Metric
-                label="בלות 60002"
-                value={String(
-                  preview.deposits?.bales60002 ?? localDep.bales60002,
-                )}
-              />
-              <Metric
-                label="משטחי סבן 60060"
-                value={String(
-                  preview.deposits?.pallets60060 ?? localDep.pallets60060,
-                )}
-              />
+              <Metric label="משקל כולל" value={weightTons != null && !Number.isNaN(weightTons) ? `${Number(weightTons).toFixed(2)} טון` : "—"} />
+              <Metric label="בלות 60002" value={String(preview.deposits?.bales60002 ?? localDep.bales60002)} />
+              <Metric label="משטחי סבן 60060" value={String(preview.deposits?.pallets60060 ?? localDep.pallets60060)} />
             </div>
-            {preview.message && (
-              <p className="text-xs text-muted-foreground">{preview.message}</p>
-            )}
+            {preview.message && <p className="text-xs text-muted-foreground">{preview.message}</p>}
           </Card>
         )}
 
@@ -381,22 +303,11 @@ function OrderConsolePage() {
               <CheckCircle2 className="h-6 w-6" /> הזמנה שודרה לגיליון
             </div>
             <div className="flex flex-wrap gap-2">
-              {injectResult.rowNumber != null && (
-                <Badge className="bg-emerald-600 text-white">
-                  שורה #{injectResult.rowNumber}
-                </Badge>
-              )}
-              {injectResult.orderId && (
-                <Badge variant="outline">מס׳ {injectResult.orderId}</Badge>
-              )}
-              <Badge variant="outline">
-                {injectResult.timestamp ||
-                  new Date().toLocaleString("he-IL")}
-              </Badge>
+              {injectResult.rowNumber != null && <Badge className="bg-emerald-600 text-white">שורה #{injectResult.rowNumber}</Badge>}
+              {injectResult.orderId && <Badge variant="outline">מס׳ {injectResult.orderId}</Badge>}
+              <Badge variant="outline">{injectResult.timestamp || new Date().toLocaleString("he-IL")}</Badge>
             </div>
-            {injectResult.message && (
-              <p className="text-sm">{injectResult.message}</p>
-            )}
+            {injectResult.message && <p className="text-sm">{injectResult.message}</p>}
           </Card>
         )}
       </div>
