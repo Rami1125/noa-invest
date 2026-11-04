@@ -1,7 +1,6 @@
 /**
  * Legacy Noa gateway server fns — aligned to Saban API contract.
- * Actions: health | lookup_catalog | preview_order | inject_order |
- *          get_delivery_note | get_media | get_inquiries_stats
+ * lookup_catalog returns { results: [...], count } — not items.
  */
 import { createServerFn } from "@tanstack/react-start";
 
@@ -32,6 +31,16 @@ function gatewayKey(): string {
     process.env.VITE_SABAN_GATEWAY_KEY ||
     FALLBACK_KEY
   ).trim();
+}
+
+/** Extract product rows from any known GAS response shape */
+function extractCatalogRows(result: Record<string, unknown>): Record<string, unknown>[] {
+  if (Array.isArray(result.results)) return result.results as Record<string, unknown>[];
+  if (Array.isArray(result.items)) return result.items as Record<string, unknown>[];
+  if (Array.isArray(result.products)) return result.products as Record<string, unknown>[];
+  if (Array.isArray(result.data)) return result.data as Record<string, unknown>[];
+  if (Array.isArray(result.rows)) return result.rows as Record<string, unknown>[];
+  return [];
 }
 
 async function callGateway(
@@ -83,22 +92,18 @@ async function callGateway(
   return result;
 }
 
-/** Catalog — backend action is lookup_catalog(q), not get_logistics_dict */
+/** Catalog — GAS returns { status, query, count, results: [...] } */
 export const logisticsDictFn = createServerFn({ method: "POST" })
   .validator((data: { query?: string }) => data)
   .handler(async ({ data }) => {
     const q = String(data.query || "").trim();
     const result = await callGateway("lookup_catalog", { q });
-    const rows = Array.isArray(result.items)
-      ? result.items
-      : Array.isArray(result.products)
-        ? result.products
-        : Array.isArray(result.data)
-          ? result.data
-          : [];
+    const rows = extractCatalogRows(result);
     return {
-      items: rows as Record<string, unknown>[],
+      items: rows,
+      results: rows,
       count: Number(result.count || result.total || rows.length),
+      query: q,
       fetchedAt: String(result.fetchedAt || new Date().toISOString()),
     };
   });
