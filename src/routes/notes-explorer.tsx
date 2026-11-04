@@ -1,5 +1,6 @@
 /**
- * דף ב': ארכיון תעודות משלוח (Delivery Notes Explorer)
+ * דף ב': ארכיון תעודות משלוח
+ * Gateway: get_delivery_note({ noteNumber, phone, key, action })
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
@@ -12,7 +13,7 @@ import { toast } from "sonner";
 import { Loader2, Search, FileText, ExternalLink, Truck } from "lucide-react";
 import {
   getDeliveryNote,
-  searchDeliveryNotes,
+  SABAN_GATEWAY,
   type DeliveryNoteResult,
   GatewayError,
 } from "@/lib/saban-gateway";
@@ -28,47 +29,47 @@ const DRIVER_HINTS = [
 ] as const;
 
 function NotesExplorerPage() {
-  const [query, setQuery] = useState("");
+  const [noteNumber, setNoteNumber] = useState("6715848");
+  const [phone, setPhone] = useState(SABAN_GATEWAY.managers.rami.phone);
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState<DeliveryNoteResult | null>(null);
-  const [list, setList] = useState<DeliveryNoteResult[]>([]);
 
   const runSearch = async () => {
-    const q = query.trim();
-    if (!q) {
-      toast.error("הזינו מספר תעודה או שם לקוח");
+    const n = noteNumber.trim();
+    const p = phone.trim();
+    if (!n) {
+      toast.error("הזינו מספר תעודה");
+      return;
+    }
+    if (!p) {
+      toast.error("נדרש מספר טלפון מאומת (phone)");
       return;
     }
     setLoading(true);
     setNote(null);
-    setList([]);
     try {
-      // Try precise note first, then list search
-      try {
-        const one = await getDeliveryNote(q);
-        if (one && (one.noteId || one.customer || one.driveLink || one.driveUrl)) {
-          setNote(one);
-          return;
-        }
-      } catch {
-        /* fall through to search */
+      const one = await getDeliveryNote(n, p);
+      setNote(one);
+      if (!one?.driveLink && !one?.driveUrl) {
+        toast.message("תעודה נשלפה — ללא driveLink");
       }
-      const res = await searchDeliveryNotes(q);
-      const items = res.notes || res.items || [];
-      setList(items);
-      if (items.length === 1) setNote(items[0]!);
-      if (items.length === 0) toast.message("לא נמצאו תעודות");
     } catch (e) {
       toast.error("שליפת תעודה נכשלה", {
-        description: e instanceof GatewayError ? e.message : e instanceof Error ? e.message : String(e),
+        description:
+          e instanceof GatewayError
+            ? e.message
+            : e instanceof Error
+              ? e.message
+              : String(e),
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const drive =
-    note?.driveLink || note?.driveUrl || (note as { pdfUrl?: string } | null)?.pdfUrl;
+  const drive = note?.driveLink || note?.driveUrl;
+  const customer = note?.customerName || note?.customer;
+  const id = note?.noteNumber || note?.noteId || noteNumber;
 
   const driverLabel = (d?: string) => {
     if (!d) return "—";
@@ -80,43 +81,42 @@ function NotesExplorerPage() {
     <div dir="rtl">
       <PageHeader
         title="ארכיון תעודות משלוח"
-        subtitle="חיפוש לפי מספר תעודה / לקוח · PDF חתום ב-Drive"
+        subtitle="get_delivery_note · noteNumber + phone · Drive PDF"
       />
       <div className="mx-auto max-w-4xl space-y-4 px-4 py-5 md:px-8">
-        <Card className="flex flex-col gap-3 rounded-2xl p-4 sm:flex-row sm:items-end">
-          <label className="min-w-0 flex-1 space-y-1 text-xs font-bold">
-            מספר תעודה או שם לקוח
+        <Card className="grid gap-3 rounded-2xl p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <label className="space-y-1 text-xs font-bold">
+            מספר תעודה (noteNumber)
             <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={noteNumber}
+              onChange={(e) => setNoteNumber(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") void runSearch();
               }}
-              placeholder="לדוגמה: 6196219 או שם לקוח"
+              placeholder="6715848"
               className="h-11"
             />
           </label>
-          <Button
-            className="min-h-11 gap-2 font-bold"
-            disabled={loading}
-            onClick={() => void runSearch()}
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Search className="h-4 w-4" />
-            )}
-            חפש תעודה
+          <label className="space-y-1 text-xs font-bold">
+            טלפון מאומת (phone)
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="972508860896"
+              className="h-11"
+              inputMode="tel"
+            />
+          </label>
+          <Button className="min-h-11 gap-2 font-bold" disabled={loading} onClick={() => void runSearch()}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            שליפת תעודה
           </Button>
         </Card>
 
         {loading && (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="h-16 animate-pulse rounded-2xl bg-muted/60"
-              />
+              <div key={i} className="h-16 animate-pulse rounded-2xl bg-muted/60" />
             ))}
           </div>
         )}
@@ -127,20 +127,20 @@ function NotesExplorerPage() {
               <div>
                 <div className="flex items-center gap-2 text-lg font-extrabold">
                   <FileText className="h-5 w-5 text-primary" />
-                  תעודה {note.noteId || query}
+                  תעודה {id}
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {note.customer || "לקוח לא צוין"}
-                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{customer || "לקוח לא צוין"}</p>
+                {note.filename && (
+                  <p className="text-[11px] text-muted-foreground">{note.filename}</p>
+                )}
+                {note.caption && <p className="mt-1 text-xs">{note.caption}</p>}
               </div>
               {note.status && (
-                <Badge variant="outline" className="font-bold">
-                  {note.status}
-                </Badge>
+                <Badge variant="outline" className="font-bold">{note.status}</Badge>
               )}
             </div>
 
-            <dl className="grid gap-3 sm:grid-cols-2 text-sm">
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-[10px] font-bold text-muted-foreground">תאריך אספקה</dt>
                 <dd className="font-semibold">{note.date || "—"}</dd>
@@ -150,7 +150,7 @@ function NotesExplorerPage() {
                 <dd className="font-semibold">{note.address || "—"}</dd>
               </div>
               <div className="sm:col-span-2">
-                <dt className="text-[10px] font-bold text-muted-foreground flex items-center gap-1">
+                <dt className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground">
                   <Truck className="h-3 w-3" /> נהג
                 </dt>
                 <dd className="font-semibold">{driverLabel(note.driver)}</dd>
@@ -167,33 +167,10 @@ function NotesExplorerPage() {
               </Button>
             ) : (
               <p className="text-xs text-amber-700 dark:text-amber-300">
-                לא התקבל קישור Drive (driveLink) מהשרת לתעודה זו.
+                לא התקבל driveLink מהשרת לתעודה זו.
               </p>
             )}
           </Card>
-        )}
-
-        {list.length > 1 && !loading && (
-          <div className="space-y-2">
-            <p className="text-xs font-bold text-muted-foreground">
-              {list.length} תוצאות — בחרו תעודה
-            </p>
-            {list.map((n, i) => (
-              <button
-                key={`${n.noteId || i}`}
-                type="button"
-                onClick={() => setNote(n)}
-                className="flex w-full flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-start hover:bg-muted/50"
-              >
-                <span className="font-bold">
-                  {n.noteId || "ללא מזהה"} · {n.customer || "—"}
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {[n.date, n.address, n.driver].filter(Boolean).join(" · ")}
-                </span>
-              </button>
-            ))}
-          </div>
         )}
       </div>
     </div>
