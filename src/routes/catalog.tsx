@@ -1,5 +1,6 @@
 /**
- * דף ג': קטלוג מוצרים לוגיסטי ויזואלי (מילון_לוגיסט · מאגר_מדיה)
+ * דף ג': קטלוג לוגיסטי
+ * Gateway: lookup_catalog(q) · get_media(mediaCode)
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -11,8 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Loader2, Search, Warehouse, Package } from "lucide-react";
 import {
-  getCatalog,
-  searchCatalog,
+  lookupCatalog,
   getMedia,
   type CatalogItem,
   GatewayError,
@@ -27,18 +27,29 @@ function CatalogPage() {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
 
-  const loadInitial = async () => {
+  const onSearch = async (qRaw?: string) => {
+    const q = (qRaw ?? query).trim();
+    if (!q) {
+      toast.message("הזינו מונח חיפוש (למשל מלט)");
+      return;
+    }
     setLoading(true);
     try {
-      const res = await getCatalog({ limit: 48, offset: 0 });
-      setItems(res.items || []);
-      setTotal(res.total ?? null);
+      const res = await lookupCatalog(q);
+      const list = res.items || res.products || [];
+      setItems(list);
+      setTotal(list.length);
     } catch (e) {
-      toast.error("טעינת קטלוג נכשלה", {
-        description: e instanceof GatewayError ? e.message : e instanceof Error ? e.message : String(e),
+      toast.error("חיפוש נכשל", {
+        description:
+          e instanceof GatewayError
+            ? e.message
+            : e instanceof Error
+              ? e.message
+              : String(e),
       });
       setItems([]);
     } finally {
@@ -46,39 +57,15 @@ function CatalogPage() {
     }
   };
 
-  useEffect(() => {
-    void loadInitial();
-  }, []);
-
-  const onSearch = async () => {
-    const q = query.trim();
-    if (!q) {
-      void loadInitial();
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await searchCatalog(q);
-      const list = res.items || res.products || [];
-      setItems(list);
-      setTotal(list.length);
-    } catch (e) {
-      toast.error("חיפוש נכשל", {
-        description: e instanceof Error ? e.message : String(e),
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const ensureMedia = async (item: CatalogItem) => {
-    if (!item.mediaId || mediaMap[item.mediaId] || item.imageUrl) return;
+    const code = item.mediaCode || item.mediaId;
+    if (!code || mediaMap[code] || item.imageUrl) return;
     try {
-      const m = await getMedia(item.mediaId);
+      const m = await getMedia(code);
       const url = m.url || m.imageUrl;
-      if (url) setMediaMap((prev) => ({ ...prev, [item.mediaId!]: url }));
+      if (url) setMediaMap((prev) => ({ ...prev, [code]: url }));
     } catch {
-      /* optional media */
+      /* optional */
     }
   };
 
@@ -89,11 +76,16 @@ function CatalogPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
+  useEffect(() => {
+    void onSearch("מלט");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div dir="rtl">
       <PageHeader
         title="קטלוג לוגיסטי"
-        subtitle="מילון_לוגיסט · חיפוש סלנג · מאגר_מדיה"
+        subtitle="lookup_catalog · get_media(mediaCode)"
         action={
           total != null ? (
             <Badge variant="outline" className="font-bold">
@@ -105,14 +97,14 @@ function CatalogPage() {
       <div className="mx-auto max-w-6xl space-y-4 px-4 py-5 md:px-8">
         <Card className="flex flex-col gap-3 rounded-2xl p-4 sm:flex-row sm:items-end">
           <label className="min-w-0 flex-1 space-y-1 text-xs font-bold">
-            חיפוש חופשי / סלנג
+            חיפוש חופשי / סלנג (q)
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") void onSearch();
               }}
-              placeholder="מלט, בלה חול, סומסום, ניצב, מסלול, מק\"ט…"
+              placeholder="מלט, בלה חול, סומסום, ניצב, מסלול…"
               className="h-11"
             />
           </label>
@@ -136,7 +128,8 @@ function CatalogPage() {
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((it) => {
-            const img = it.imageUrl || (it.mediaId ? mediaMap[it.mediaId] : undefined);
+            const code = it.mediaCode || it.mediaId;
+            const img = it.imageUrl || (code ? mediaMap[code] : undefined);
             return (
               <Card key={it.sku} className="overflow-hidden rounded-2xl">
                 <div className="flex h-28 items-center justify-center bg-muted/40">
