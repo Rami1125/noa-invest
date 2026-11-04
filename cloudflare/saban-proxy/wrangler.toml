@@ -3,4 +3,4 @@ main = "worker.js"
 compatibility_date = "2026-11-04"
 
 [vars]
-GAS_URL = "https://script.google.com/macros/s/AKfycbx1f8JmxEtfwfMUhd3b_3vCf9ygKV5S7Orm3p7CsyDhNce2obQLg331hZpjOetaqQvcHw/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycbwx7Vwrlrx_gKpPn5gFpHXsiBsV8TImeSWG5S1wpVDMAZkNCiOQGkNhFuaVD6AAVTv6SA/exec"
