@@ -1,6 +1,7 @@
 /**
  * Noa gateway server fns — Saban API contract +
  * upsert_product_media / delete_product_media (require GAS handlers).
+ * Uses .inputValidator (TanStack Start 1.168+)
  */
 import { createServerFn } from "@tanstack/react-start";
 
@@ -94,7 +95,7 @@ async function callGateway(
 }
 
 export const logisticsDictFn = createServerFn({ method: "POST" })
-  .validator((data: { query?: string }) => data)
+  .inputValidator((data: { query?: string }) => data)
   .handler(async ({ data }) => {
     const q = String(data.query || "").trim();
     const result = await callGateway("lookup_catalog", { q });
@@ -109,7 +110,7 @@ export const logisticsDictFn = createServerFn({ method: "POST" })
   });
 
 export const previewOrderFn = createServerFn({ method: "POST" })
-  .validator(
+  .inputValidator(
     (data: {
       order?: Record<string, unknown>;
       itemsJson?: string;
@@ -139,7 +140,7 @@ export const previewOrderFn = createServerFn({ method: "POST" })
   });
 
 export const injectOrderFn = createServerFn({ method: "POST" })
-  .validator(
+  .inputValidator(
     (data: { order?: Record<string, unknown> } & Record<string, unknown>) => data,
   )
   .handler(async ({ data }) => {
@@ -163,7 +164,7 @@ export const injectOrderFn = createServerFn({ method: "POST" })
   });
 
 export const deliveryNoteFn = createServerFn({ method: "POST" })
-  .validator(
+  .inputValidator(
     (data: { query?: string; noteNumber?: string; phone?: string }) => data,
   )
   .handler(async ({ data }) => {
@@ -173,15 +174,14 @@ export const deliveryNoteFn = createServerFn({ method: "POST" })
   });
 
 export const mediaFn = createServerFn({ method: "POST" })
-  .validator((data: { sku?: string; mediaCode?: string }) => data)
+  .inputValidator((data: { sku?: string; mediaCode?: string }) => data)
   .handler(async ({ data }) => {
     const mediaCode = String(data.mediaCode || data.sku || "").trim();
     return callGateway("get_media", { mediaCode });
   });
 
-/** Save / update image URL in מאגר_מדיה + link on מילון_לוגיסט */
 export const upsertProductMediaFn = createServerFn({ method: "POST" })
-  .validator(
+  .inputValidator(
     (data: { sku: string; url: string; mediaCode?: string; name?: string }) => data,
   )
   .handler(async ({ data }) => {
@@ -200,9 +200,8 @@ export const upsertProductMediaFn = createServerFn({ method: "POST" })
     });
   });
 
-/** Remove media link for product */
 export const deleteProductMediaFn = createServerFn({ method: "POST" })
-  .validator((data: { sku: string; mediaCode?: string }) => data)
+  .inputValidator((data: { sku: string; mediaCode?: string }) => data)
   .handler(async ({ data }) => {
     const sku = String(data.sku || "").trim();
     const mediaCode = String(data.mediaCode || (sku ? `SKU_${sku}` : "")).trim();
@@ -211,7 +210,7 @@ export const deleteProductMediaFn = createServerFn({ method: "POST" })
   });
 
 export const inquiriesStatsFn = createServerFn({ method: "POST" })
-  .validator((data: { managerPhone?: string; phone?: string }) => data)
+  .inputValidator((data: { managerPhone?: string; phone?: string }) => data)
   .handler(async ({ data }) => {
     let normalized = String(data.phone || data.managerPhone || "").replace(
       /\D/g,
