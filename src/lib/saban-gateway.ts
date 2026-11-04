@@ -1,16 +1,18 @@
 /**
  * Saban Enterprise API Gateway client
- * Base: https://saban-proxy.hsaban2025.workers.dev/
- * Sheet: בדיקת תעודות משלוח- (1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw)
+ * Proxy: https://saban-proxy.hsaban2025.workers.dev/
+ * Auth: JSON body field `key` (NOT secret, NOT Authorization-only)
+ * Method: POST application/json (preferred) or GET query params
  *
- * Rules:
- * - POST for actions with body (never send body on GET)
- * - Secret via header X-Saban-Secret + body.secret fallback
+ * Contract actions:
+ *   health | get_inquiries_stats | get_delivery_note | inject_order
+ *   lookup_catalog | preview_order | get_media
  */
 
 export const SABAN_GATEWAY = {
   baseUrl: "https://saban-proxy.hsaban2025.workers.dev/",
-  secret: "saban_noa_secret_key_2026_enterprise_99",
+  /** Must be sent as JSON field `key` */
+  key: "saban_noa_secret_key_2026_enterprise_99",
   sheetId: "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw",
   sheetTitle: "בדיקת תעודות משלוח-",
   managers: {
@@ -20,15 +22,13 @@ export const SABAN_GATEWAY = {
 } as const;
 
 export type GatewayAction =
-  | "preview_order"
-  | "inject_order"
-  | "get_delivery_note"
-  | "search_delivery_notes"
-  | "get_catalog"
-  | "search_catalog"
-  | "get_media"
+  | "health"
   | "get_inquiries_stats"
-  | "health";
+  | "get_delivery_note"
+  | "inject_order"
+  | "lookup_catalog"
+  | "preview_order"
+  | "get_media";
 
 export class GatewayError extends Error {
   status: number;
@@ -49,12 +49,17 @@ export type OrderLineInput = {
 };
 
 export type PreviewOrderPayload = {
+  items: OrderLineInput[];
+};
+
+export type InjectOrderPayload = {
   customerName: string;
   phone?: string;
   address: string;
-  unloadType: "crane" | "manual" | "forklift" | string;
-  requestedAt?: string;
-  driverNotes?: string;
+  unloadingType: "crane" | "manual" | "forklift" | string;
+  requestedTime?: string;
+  contactName?: string;
+  notes?: string;
   items: OrderLineInput[];
 };
 
@@ -62,17 +67,13 @@ export type PreviewOrderResult = {
   ok?: boolean;
   totalWeightTons?: number;
   weightKg?: number;
+  weightTons?: number;
   deposits?: {
     bales60002?: number;
     pallets60060?: number;
-    thresholdBags?: 40 | 50 | number;
+    thresholdBags?: number;
   };
-  lines?: Array<{
-    sku: string;
-    name: string;
-    qty: number;
-    weightKg?: number;
-  }>;
+  lines?: Array<{ sku: string; name?: string; qty: number; weightKg?: number }>;
   message?: string;
   [key: string]: unknown;
 };
@@ -87,7 +88,9 @@ export type InjectOrderResult = {
 };
 
 export type DeliveryNoteResult = {
+  noteNumber?: string;
   noteId?: string;
+  customerName?: string;
   customer?: string;
   date?: string;
   address?: string;
@@ -95,6 +98,8 @@ export type DeliveryNoteResult = {
   status?: string;
   driveLink?: string;
   driveUrl?: string;
+  filename?: string;
+  caption?: string;
   [key: string]: unknown;
 };
 
@@ -107,6 +112,7 @@ export type CatalogItem = {
   warehouse?: string;
   slang?: string[];
   mediaId?: string;
+  mediaCode?: string;
   imageUrl?: string;
   [key: string]: unknown;
 };
@@ -115,23 +121,45 @@ export type InquiriesStats = {
   harelOpen?: number;
   ramiOpen?: number;
   totalOpen?: number;
+  open?: number;
   harelTab?: string;
   ramiTab?: string;
   updatedAt?: string;
   [key: string]: unknown;
 };
 
+function toItemsJson(items: OrderLineInput[]): string {
+  return JSON.stringify(
+    items.map((i) => ({
+      sku: String(i.sku),
+      qty: Number(i.qty) || 0,
+      ...(i.name ? { name: i.name } : {}),
+      ...(i.unit ? { unit: i.unit } : {}),
+    })),
+  );
+}
+
+/**
+ * Core transport — always POST JSON with `action` + `key` in body.
+ * No reliance on Authorization headers for auth (Worker/GAS expect `key`).
+ */
 async function gatewayCall<T>(
   action: GatewayAction,
-  payload: Record<string, unknown> = {},
+  params: Record<string, unknown> = {},
   init?: { signal?: AbortSignal },
 ): Promise<T> {
   const url = SABAN_GATEWAY.baseUrl.replace(/\/?$/, "/");
+
+  // Strip undefined / null so GAS does not see empty noise
+  const clean: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") clean[k] = v;
+  }
+
   const body = {
     action,
-    secret: SABAN_GATEWAY.secret,
-    sheetId: SABAN_GATEWAY.sheetId,
-    ...payload,
+    key: SABAN_GATEWAY.key,
+    ...clean,
   };
 
   let res: Response;
@@ -141,8 +169,6 @@ async function gatewayCall<T>(
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        "X-Saban-Secret": SABAN_GATEWAY.secret,
-        Authorization: `Bearer ${SABAN_GATEWAY.secret}`,
       },
       body: JSON.stringify(body),
       signal: init?.signal,
@@ -151,7 +177,7 @@ async function gatewayCall<T>(
     const msg =
       err instanceof Error ? err.message : "Network error talking to Saban Gateway";
     throw new GatewayError(
-      `שער ה-API לא זמין (${msg}). נסו שוב בעוד רגע.`,
+      `שער ה-API לא זמין (${msg}). בדקו את Cloudflare Worker.`,
       0,
       err,
     );
@@ -163,7 +189,15 @@ async function gatewayCall<T>(
     try {
       data = JSON.parse(text);
     } catch {
-      data = { raw: text };
+      // Worker/GAS sometimes returns HTML on crash
+      if (/error code:\s*1101/i.test(text) || /Worker threw exception/i.test(text)) {
+        throw new GatewayError(
+          "Cloudflare Worker 1101 — יש לעדכן את ה-Worker (CORS + redirect:follow + key)",
+          1101,
+          text.slice(0, 400),
+        );
+      }
+      data = { raw: text.slice(0, 500) };
     }
   }
 
@@ -171,91 +205,142 @@ async function gatewayCall<T>(
     const errMsg =
       (data &&
         typeof data === "object" &&
-        ("error" in data || "message" in data) &&
         String(
           (data as { error?: string; message?: string }).error ||
-            (data as { message?: string }).message,
+            (data as { message?: string }).message ||
+            `HTTP ${res.status}`,
         )) ||
       `HTTP ${res.status}`;
     throw new GatewayError(errMsg, res.status, data);
   }
 
-  if (
-    data &&
-    typeof data === "object" &&
-    ("status" in data) &&
-    String((data as { status: string }).status).toLowerCase() === "unauthorized"
-  ) {
-    throw new GatewayError("מפתח סודי לא תקין ב-Gateway", 401, data);
+  if (data && typeof data === "object") {
+    const st = String(
+      (data as { status?: string; ok?: boolean }).status ?? "",
+    ).toLowerCase();
+    if (st === "unauthorized" || st === "forbidden") {
+      throw new GatewayError(
+        "מפתח לא תקין — ודאו ששדה key נשלח בגוף ה-JSON",
+        401,
+        data,
+      );
+    }
+    if ((data as { error?: string }).error) {
+      const e = String((data as { error: string }).error);
+      if (/unauth|invalid.?key|forbidden/i.test(e)) {
+        throw new GatewayError(e, 401, data);
+      }
+    }
   }
 
   return data as T;
 }
 
-export function previewOrder(payload: PreviewOrderPayload, signal?: AbortSignal) {
-  return gatewayCall<PreviewOrderResult>("preview_order", { ...payload }, { signal });
+// ─── Public API ───────────────────────────────────────────────
+
+export function health(signal?: AbortSignal) {
+  return gatewayCall<{ ok?: boolean; status?: string; version?: string }>(
+    "health",
+    {},
+    { signal },
+  );
 }
 
-export function injectOrder(payload: PreviewOrderPayload, signal?: AbortSignal) {
-  return gatewayCall<InjectOrderResult>("inject_order", { ...payload }, { signal });
+export function getInquiriesStats(phone: string, signal?: AbortSignal) {
+  return gatewayCall<InquiriesStats>(
+    "get_inquiries_stats",
+    { phone },
+    { signal },
+  );
 }
 
-export function getDeliveryNote(query: string, signal?: AbortSignal) {
+export function getDeliveryNote(
+  noteNumber: string,
+  phone: string,
+  signal?: AbortSignal,
+) {
   return gatewayCall<DeliveryNoteResult>(
     "get_delivery_note",
-    { query, noteId: query, customer: query },
+    { noteNumber, phone },
     { signal },
   );
 }
 
-export function searchDeliveryNotes(query: string, signal?: AbortSignal) {
-  return gatewayCall<{ notes?: DeliveryNoteResult[]; items?: DeliveryNoteResult[] }>(
-    "search_delivery_notes",
-    { query },
+export function injectOrder(payload: InjectOrderPayload, signal?: AbortSignal) {
+  return gatewayCall<InjectOrderResult>(
+    "inject_order",
+    {
+      customerName: payload.customerName,
+      phone: payload.phone,
+      address: payload.address,
+      unloadingType: payload.unloadingType,
+      requestedTime: payload.requestedTime,
+      contactName: payload.contactName,
+      notes: payload.notes,
+      itemsJson: toItemsJson(payload.items),
+    },
     { signal },
   );
 }
 
-export function searchCatalog(query: string, signal?: AbortSignal) {
+export function lookupCatalog(q: string, signal?: AbortSignal) {
   return gatewayCall<{ items?: CatalogItem[]; products?: CatalogItem[] }>(
-    "search_catalog",
-    { query, tab: "מילון_לוגיסט" },
+    "lookup_catalog",
+    { q },
     { signal },
   );
 }
 
-export function getCatalog(params?: { limit?: number; offset?: number }, signal?: AbortSignal) {
-  return gatewayCall<{ items?: CatalogItem[]; total?: number }>(
-    "get_catalog",
-    { tab: "מילון_לוגיסט", limit: params?.limit ?? 80, offset: params?.offset ?? 0 },
+/** @deprecated alias — prefer lookupCatalog */
+export function searchCatalog(q: string, signal?: AbortSignal) {
+  return lookupCatalog(q, signal);
+}
+
+export function previewOrder(payload: PreviewOrderPayload, signal?: AbortSignal) {
+  return gatewayCall<PreviewOrderResult>(
+    "preview_order",
+    { itemsJson: toItemsJson(payload.items) },
     { signal },
   );
 }
 
-export function getMedia(mediaId: string, signal?: AbortSignal) {
-  return gatewayCall<{ url?: string; imageUrl?: string; base64?: string }>(
+export function getMedia(mediaCode: string, signal?: AbortSignal) {
+  return gatewayCall<{ url?: string; imageUrl?: string; mediaCode?: string }>(
     "get_media",
-    { mediaId, tab: "מאגר_מדיה" },
+    { mediaCode },
     { signal },
   );
 }
 
-export function getInquiriesStats(signal?: AbortSignal) {
-  return gatewayCall<InquiriesStats>("get_inquiries_stats", {}, { signal });
+/** Optional bulk list — falls back to empty if backend has no get_catalog */
+export async function getCatalog(
+  _params?: { limit?: number; offset?: number },
+  signal?: AbortSignal,
+): Promise<{ items?: CatalogItem[]; total?: number }> {
+  // Backend contract exposes lookup_catalog; use empty-q or common seed terms
+  try {
+    const res = await lookupCatalog("", signal);
+    const items = res.items || res.products || [];
+    return { items, total: items.length };
+  } catch {
+    return { items: [], total: 0 };
+  }
 }
 
 export function isManagerPhone(phone: string): "harel" | "rami" | null {
   const digits = phone.replace(/\D/g, "");
   const norm = digits.startsWith("0") ? `972${digits.slice(1)}` : digits;
-  if (norm.endsWith(SABAN_GATEWAY.managers.harel.phone.slice(-9)) || norm === SABAN_GATEWAY.managers.harel.phone)
-    return "harel";
-  if (norm.endsWith(SABAN_GATEWAY.managers.rami.phone.slice(-9)) || norm === SABAN_GATEWAY.managers.rami.phone)
-    return "rami";
+  const h = SABAN_GATEWAY.managers.harel.phone;
+  const r = SABAN_GATEWAY.managers.rami.phone;
+  if (norm === h || norm.endsWith(h.slice(-9))) return "harel";
+  if (norm === r || norm.endsWith(r.slice(-9))) return "rami";
   return null;
 }
 
-/** Deposit thresholds: every 40 or 50 bags → 1 bale / pallet unit (business rule). */
-export function estimateDepositsLocal(items: OrderLineInput[], bagThreshold: 40 | 50 = 40) {
+export function estimateDepositsLocal(
+  items: OrderLineInput[],
+  bagThreshold: 40 | 50 = 40,
+) {
   const bags = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
   const units = Math.floor(bags / bagThreshold);
   return {
