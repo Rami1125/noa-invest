@@ -3,8 +3,8 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircle, ArrowUpRight, BadgeCheck, Boxes, CheckCircle2, Clock3, FileSearch,
-  FileText, Image as ImageIcon, Loader2, Package, Plus, RefreshCw, Search,
-  Send, ShieldCheck, Truck, UserRound, Weight, X,
+  FileText, Image as ImageIcon, Loader2, Package, Plus, Search,
+  Send, ShieldCheck, UserRound, Weight, X,
 } from "lucide-react";
 import { PageHeader } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -48,7 +48,7 @@ function normalizeProduct(row: Record<string, unknown>): Product {
     imageUrl: str(row.imageUrl || row.image || row["קישור תמונה"]) || undefined,
   };
 }
-function SectionTitle({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
+function SectionTitle({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
   return <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="font-display text-xl font-extrabold">{title}</h2>{subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}</div>{action}</div>;
 }
 function Metric({ label, value, icon: Icon, tone = "blue" }: { label: string; value: string | number; icon: typeof Package; tone?: "blue" | "green" | "amber" | "violet" }) {
@@ -72,7 +72,6 @@ function NoaConsole() {
   const [noteQuery, setNoteQuery] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogVisibleCount, setCatalogVisibleCount] = useState(90);
-  const [selectedSku, setSelectedSku] = useState("");
   const [managerPhone, setManagerPhone] = useState("");
 
 
