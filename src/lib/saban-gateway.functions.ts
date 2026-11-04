@@ -1,14 +1,10 @@
 /**
  * Server-only Saban Gateway transport.
- * Env (any one is enough), checked in order:
- *   SABAN_GATEWAY_SECRET | SABAN_GATEWAY_KEY | SABAN_KEY | VITE_SABAN_GATEWAY_KEY
- * Fallback: enterprise key (same as Worker EXPECTED_KEY).
+ * Always injects key into JSON body (field `key`) and Authorization header.
  */
 import { createServerFn } from "@tanstack/react-start";
 
 const DEFAULT_PROXY = "https://saban-proxy.hsaban2025.workers.dev/";
-
-/** Same value as workers/saban-proxy.js EXPECTED_KEY */
 const FALLBACK_KEY = "saban_noa_secret_key_2026_enterprise_99";
 
 function gatewayKey(): string {
@@ -19,14 +15,7 @@ function gatewayKey(): string {
     process.env["VITE_SABAN_GATEWAY_KEY"] ||
     process.env["VITE_SABAN_GATEWAY_SECRET"] ||
     FALLBACK_KEY;
-
-  const trimmed = String(k).trim();
-  if (!trimmed) {
-    throw new Error(
-      "מפתח Gateway חסר בשרת. יש להגדיר SABAN_GATEWAY_SECRET (או SABAN_GATEWAY_KEY) ב-Vercel Environment Variables.",
-    );
-  }
-  return trimmed;
+  return String(k).trim() || FALLBACK_KEY;
 }
 
 function gatewayUrl(): string {
@@ -61,10 +50,11 @@ export const sabanGatewayFn = createServerFn({ method: "POST" })
       if (v !== undefined && v !== null && v !== "") clean[k] = v;
     }
 
+    // Explicit key last so it cannot be overwritten by params
     const body = {
       action: data.action,
-      key,
       ...clean,
+      key,
     };
 
     let res: Response;
@@ -74,6 +64,8 @@ export const sabanGatewayFn = createServerFn({ method: "POST" })
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
+          Authorization: `Bearer ${key}`,
+          "X-Saban-Secret": key,
         },
         body: JSON.stringify(body),
         redirect: "follow",
@@ -92,10 +84,10 @@ export const sabanGatewayFn = createServerFn({ method: "POST" })
       } catch {
         if (/error code:\s*1101/i.test(text) || /Worker threw exception/i.test(text)) {
           throw new Error(
-            "Cloudflare Worker 1101 — עדכנו את workers/saban-proxy.js (CORS + redirect:follow + key)",
+            "Cloudflare Worker 1101 — עדכנו את workers/saban-proxy.js ב-Cloudflare",
           );
         }
-        throw new Error(`תשובה לא-JSON מה-Gateway (HTTP ${res.status})`);
+        throw new Error(`תשובה לא-JSON מה-Gateway (HTTP ${res.status}): ${text.slice(0, 200)}`);
       }
     }
 
@@ -114,12 +106,10 @@ export const sabanGatewayFn = createServerFn({ method: "POST" })
     if (parsed && typeof parsed === "object") {
       const st = String((parsed as { status?: string }).status || "").toLowerCase();
       if (st === "unauthorized" || st === "forbidden") {
-        throw new Error(
-          "מפתח לא תקין — ודאו ש-SABAN_GATEWAY_SECRET ב-Vercel תואם ל-Worker/GAS",
-        );
+        throw new Error("מפתח לא תקין מול Worker/GAS");
       }
       const e = (parsed as { error?: string }).error;
-      if (e && /unauth|invalid.?key|forbidden/i.test(String(e))) {
+      if (e && /unauth|invalid.?key|missing.?key|forbidden/i.test(String(e))) {
         throw new Error(String(e));
       }
     }
