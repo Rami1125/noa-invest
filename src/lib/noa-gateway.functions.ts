@@ -55,7 +55,7 @@ export const logisticsDictFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const result = await callGateway("get_logistics_dict", { query: String(data.query || "").trim() });
     const rows = Array.isArray(result.items) ? result.items : Array.isArray(result.data) ? result.data : [];
-    return { items: rows as Record<string, unknown>[], fetchedAt: String(result.fetchedAt || new Date().toISOString()) };
+    return { items: rows as Record<string, unknown>[], count: Number(result.count || result.total || rows.length), fetchedAt: String(result.fetchedAt || new Date().toISOString()) };
   });
 
 export const previewOrderFn = createServerFn({ method: "POST" })
