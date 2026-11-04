@@ -13,11 +13,6 @@ type GatewayAction =
   | "get_media"
   | "get_inquiries_stats";
 
-type GatewayInput = { action: GatewayAction; payload?: Record<string, unknown> };
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
 
 async function callGateway(action: GatewayAction, payload: Record<string, unknown> = {}) {
   const secret = process.env.SABAN_GATEWAY_SECRET;
