@@ -12,6 +12,10 @@ import {
   LayoutGrid,
   MapPin,
   LayoutDashboard,
+  PackagePlus,
+  BookOpen,
+  ShieldCheck,
+  Archive,
 } from "lucide-react";
 import { type ReactNode, useState, useEffect, useRef } from "react";
 import { useLocation, Link } from "@tanstack/react-router";
@@ -32,12 +36,16 @@ import {
 const DESKTOP_NAV = [
   { to: "/", label: "ראשי הראל", icon: Crown },
   { to: "/harel", label: "משימות הראל", icon: Crown },
+  { to: "/order-console", label: "הזמנה חדשה", icon: PackagePlus },
   { to: "/orders", label: "הזמנות בסידור", icon: ClipboardList },
+  { to: "/notes-explorer", label: "ארכיון תעודות", icon: Archive },
   { to: "/notes", label: "תעודות משלוח", icon: FileText },
+  { to: "/catalog", label: "קטלוג לוגיסטי", icon: BookOpen },
   { to: "/canvas", label: "עריכת תעודה (קנבס)", icon: Edit3 },
   { to: "/customers", label: "תיקי לקוחות", icon: Users },
   { to: "/sites", label: "אתרי אספקה", icon: MapPin },
   { to: "/ituran", label: " נתוני-איתורן", icon: Satellite },
+  { to: "/mgmt", label: "בקרת הנהלה", icon: ShieldCheck },
   { to: "/noa-console", label: "מרכז ניהול נועה AI", icon: LayoutDashboard },
   { to: "/noa-brain", label: "נועה Brain", icon: MessageCircle },
   { to: "/chat", label: "צ'אט נועה AI", icon: MessageCircle },
