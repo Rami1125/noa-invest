@@ -17,6 +17,7 @@ import { Route as HarelRouteImport } from './routes/harel'
 import { Route as InquiryRouteImport } from './routes/inquiry'
 import { Route as IturanRouteImport } from './routes/ituran'
 import { Route as NotesRouteImport } from './routes/notes'
+import { Route as NoaConsoleRouteImport } from './routes/noa-console'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as TachographRouteImport } from './routes/tachograph'
 import { Route as ApiBackendRouteImport } from './routes/api.backend'
@@ -70,6 +71,11 @@ const OrdersRoute = OrdersRouteImport.update({
   path: '/orders',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NoaConsoleRoute = NoaConsoleRouteImport.update({
+  id: '/noa-console',
+  path: '/noa-console',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TachographRoute = TachographRouteImport.update({
   id: '/tachograph',
   path: '/tachograph',
@@ -110,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/inquiry': typeof InquiryRouteWithChildren
   '/ituran': typeof IturanRoute
   '/notes': typeof NotesRouteWithChildren
+  '/noa-console': typeof NoaConsoleRoute
   '/orders': typeof OrdersRoute
   '/tachograph': typeof TachographRoute
   '/api/backend': typeof ApiBackendRoute
@@ -164,6 +171,7 @@ export interface FileRouteTypes {
     | '/inquiry'
     | '/ituran'
     | '/notes'
+    | '/noa-console'
     | '/orders'
     | '/tachograph'
     | '/api/backend'
@@ -218,6 +226,7 @@ export interface RootRouteChildren {
   NotesRoute: typeof NotesRouteWithChildren
   OrdersRoute: typeof OrdersRoute
   TachographRoute: typeof TachographRoute
+  NoaConsoleRoute: typeof NoaConsoleRoute
   ApiBackendRoute: typeof ApiBackendRoute
   ApiSplitScanRoute: typeof ApiSplitScanRoute
 }
@@ -271,6 +280,13 @@ declare module '@tanstack/react-router' {
       path: '/ituran'
       fullPath: '/ituran'
       preLoaderRoute: typeof IturanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/noa-console': {
+      id: '/noa-console'
+      path: '/noa-console'
+      fullPath: '/noa-console'
+      preLoaderRoute: typeof NoaConsoleRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notes': {
@@ -376,6 +392,7 @@ const rootRouteChildren: RootRouteChildren = {
   NotesRoute: NotesRouteWithChildren,
   OrdersRoute: OrdersRoute,
   TachographRoute: TachographRoute,
+  NoaConsoleRoute: NoaConsoleRoute,
   ApiBackendRoute: ApiBackendRoute,
   ApiSplitScanRoute: ApiSplitScanRoute,
 }
