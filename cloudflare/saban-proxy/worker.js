@@ -5,7 +5,7 @@
  * The API key is passed only in the JSON request body to Apps Script.
  */
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbx1f8JmxEtfwfMUhd3b_3vCf9ygKV5S7Orm3p7CsyDhNce2obQLg331hZpjOetaqQvcHw/exec";
+  "https://script.google.com/macros/s/AKfycbwx7Vwrlrx_gKpPn5gFpHXsiBsV8TImeSWG5S1wpVDMAZkNCiOQGkNhFuaVD6AAVTv6SA/exec";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
