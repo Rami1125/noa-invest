@@ -2,7 +2,7 @@
  * Server-only Saban Gateway transport.
  * Env (any one is enough), checked in order:
  *   SABAN_GATEWAY_SECRET | SABAN_GATEWAY_KEY | SABAN_KEY | VITE_SABAN_GATEWAY_KEY
- * Fallback: enterprise key (same as Worker EXPECTED_KEY) so prod works if env not set yet.
+ * Fallback: enterprise key (same as Worker EXPECTED_KEY).
  */
 import { createServerFn } from "@tanstack/react-start";
 
@@ -126,4 +126,3 @@ export const sabanGatewayFn = createServerFn({ method: "POST" })
 
     return parsed as Record<string, unknown>;
   });
-}
