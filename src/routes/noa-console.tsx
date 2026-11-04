@@ -73,7 +73,7 @@ function NoaConsole() {
   const [catalogQuery, setCatalogQuery] = useState("");
   const [selectedSku, setSelectedSku] = useState("");
   const [managerPhone, setManagerPhone] = useState("");
-  const [managementRequested, setManagementRequested] = useState(false);
+
 
   const productsQuery = useQuery({
     queryKey: ["noa-logistics-dict", productSearch.trim()],
@@ -151,7 +151,6 @@ function NoaConsole() {
   const noteRows = Array.isArray(noteResult.notes) ? noteResult.notes as Record<string, unknown>[] : [];
 
   const catalogCount = num(catalogQueryResult.data?.count || catalogQueryResult.data?.total);
-  const inquiriesError = "";
   const [inquiries, setInquiries] = useState<Record<string, unknown> | null>(null);
   const [inquiriesBusy, setInquiriesBusy] = useState(false);
   const [inquiriesErrorState, setInquiriesErrorState] = useState("");
@@ -232,7 +231,7 @@ function NoaConsole() {
 
       {tab === "management" && <section className="space-y-4">
         <SectionTitle title="לוח בקרת הנהלה ובירורים" subtitle="גישה מותנית באימות מספר הנהלה והרשאה חוזרת מה-Gateway." />
-        <Card className="rounded-3xl p-5"><div className="flex items-center gap-2 font-bold"><ShieldCheck className="h-5 w-5 text-primary" />אימות מנהל</div><p className="mt-1 text-sm text-muted-foreground">הזן מספר טלפון הנהלה. השרת וה-Gateway חייבים לאמת את ההרשאה; התאמת המספר לבדה אינה נחשבת אימות זהות.</p><div className="mt-4 flex flex-col gap-2 sm:flex-row"><input value={managerPhone} onChange={e => { setManagerPhone(e.target.value); setManagementRequested(false); }} className="field sm:max-w-sm" inputMode="tel" placeholder="מספר טלפון הנהלה" /><Button onClick={() => { setManagementRequested(true); void loadInquiries(); }} disabled={inquiriesBusy || !managerPhone.trim()}>{inquiriesBusy && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}בדיקת הרשאה ושליפת בירורים</Button></div></Card>
+        <Card className="rounded-3xl p-5"><div className="flex items-center gap-2 font-bold"><ShieldCheck className="h-5 w-5 text-primary" />אימות מנהל</div><p className="mt-1 text-sm text-muted-foreground">הזן מספר טלפון הנהלה. השרת וה-Gateway חייבים לאמת את ההרשאה; התאמת המספר לבדה אינה נחשבת אימות זהות.</p><div className="mt-4 flex flex-col gap-2 sm:flex-row"><input value={managerPhone} onChange={e => { setManagerPhone(e.target.value); setInquiries(null); setInquiriesErrorState(""); }} className="field sm:max-w-sm" inputMode="tel" placeholder="מספר טלפון הנהלה" /><Button onClick={() => { void loadInquiries(); }} disabled={inquiriesBusy || !managerPhone.trim()}>{inquiriesBusy && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}בדיקת הרשאה ושליפת בירורים</Button></div></Card>
         {inquiriesErrorState && <ErrorPanel message={inquiriesErrorState} />}{inquiries && <div className="space-y-3"><div className="grid gap-3 sm:grid-cols-2"><Metric label="בירורים אצל הראל" value={num(inquiries.harelCount ?? inquiries.harel)} icon={UserRound} tone="amber" /><Metric label="בירורים אצל ראמי" value={num(inquiries.ramiCount ?? inquiries.rami)} icon={Clock3} tone="violet" /></div><Card className="rounded-2xl p-4"><h3 className="font-bold">פירוט בירורים פתוחים</h3><InquiryList title="בירור הראל — מנכ״ל" rows={Array.isArray(inquiries.harelInquiries) ? inquiries.harelInquiries as Record<string, unknown>[] : []} /><InquiryList title="בירור ראמי" rows={Array.isArray(inquiries.ramiInquiries) ? inquiries.ramiInquiries as Record<string, unknown>[] : []} /></Card></div>}
       </section>}
     </main>
@@ -246,10 +245,10 @@ function Info({ label, value }: { label: string; value: string }) {
   return <div className="rounded-xl bg-muted/40 p-3"><small className="block text-muted-foreground">{label}</small><strong className="mt-1 block break-words">{value || "—"}</strong></div>;
 }
 function CatalogCard({ product }: { product: Product }) {
-  const media = useQuery({ queryKey: ["noa-product-media", product.sku], queryFn: () => mediaFn({ data: { sku: product.sku } }), enabled: Boolean(product.sku), staleTime: 300_000 });
+  const media = useQuery({ queryKey: ["noa-product-media", product.sku], queryFn: () => mediaFn({ data: { sku: product.sku } }), enabled: false, staleTime: 300_000 });
   const mediaResult = media.data || {};
   const imageUrl = product.imageUrl || str(mediaResult.imageUrl || mediaResult.url || mediaResult.driveLink);
-  return <Card className="overflow-hidden rounded-2xl p-4 transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex gap-3"><div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted">{imageUrl ? <img src={imageUrl} alt={product.name} loading="lazy" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-muted-foreground/50" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-[11px] font-bold text-primary">{product.sku || "ללא מק״ט"}</p><h3 className="line-clamp-2 text-sm font-extrabold">{product.name || "פריט ללא שם"}</h3><p className="mt-1 text-xs text-muted-foreground">{product.category || "קטגוריה לא הוגדרה"}</p></div></div><div className="mt-3 grid grid-cols-3 gap-2 border-t pt-3 text-xs"><Info label="יחידה" value={product.unit} /><Info label="משקל" value={product.weightKg ? `${product.weightKg} ק״ג` : "—"} /><Info label="מחסן" value={product.warehouse || "—"} /></div>{media.isError && <p className="mt-2 text-[10px] text-muted-foreground">תמונה לא זמינה: {(media.error as Error).message}</p>}</Card>;
+  return <Card className="overflow-hidden rounded-2xl p-4 transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex gap-3"><div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted">{imageUrl ? <img src={imageUrl} alt={product.name} loading="lazy" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-muted-foreground/50" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-[11px] font-bold text-primary">{product.sku || "ללא מק״ט"}</p><h3 className="line-clamp-2 text-sm font-extrabold">{product.name || "פריט ללא שם"}</h3><p className="mt-1 text-xs text-muted-foreground">{product.category || "קטגוריה לא הוגדרה"}</p></div></div><div className="mt-3 grid grid-cols-3 gap-2 border-t pt-3 text-xs"><Info label="יחידה" value={product.unit} /><Info label="משקל" value={product.weightKg ? `${product.weightKg} ק״ג` : "—"} /><Info label="מחסן" value={product.warehouse || "—"} /></div><div className="mt-2 flex items-center justify-between gap-2"><span className="text-[10px] text-muted-foreground">{media.isError ? "לא ניתן לטעון תמונה" : media.data ? "מדיה נטענה" : "מדיה לפי דרישה"}</span><button type="button" onClick={() => void media.refetch()} disabled={media.isFetching || !product.sku} className="rounded-lg border px-2 py-1 text-[10px] font-bold disabled:opacity-50">{media.isFetching ? "טוען…" : "טען תמונה"}</button></div></Card>;
 }
 function InquiryList({ title, rows }: { title: string; rows: Record<string, unknown>[] }) {
   return <div className="mt-4"><h4 className="text-sm font-bold">{title} · {rows.length}</h4>{rows.length ? <ul className="mt-2 space-y-2">{rows.map((row, i) => <li key={str(row.noteNumber || row.id || i)} className="rounded-xl border p-3 text-sm"><strong>{str(row.noteNumber || row.id || "תעודה")}</strong> · {str(row.customer || row.customerName)}<p className="text-xs text-muted-foreground">{str(row.status || row.reason || "ממתין לטיפול")}</p></li>)}</ul> : <p className="mt-2 text-xs text-muted-foreground">אין רשומות או שה-Gateway לא החזיר פירוט.</p>}</div>;
