@@ -1,82 +1,113 @@
 import { createServerFn } from "@tanstack/react-start";
 
-const GATEWAY_URL =
-  process.env.SABAN_GATEWAY_URL || "https://saban-proxy.hsaban2025.workers.dev/";
-const SHEET_ID = "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw";
 const MANAGEMENT_PHONES = new Set(["972505227724", "972508860896"]);
+type OrderInput = Record<string, unknown>;
 
-type GatewayAction =
-  | "get_logistics_dict"
-  | "preview_order"
-  | "inject_order"
-  | "get_delivery_note"
-  | "get_media"
-  | "get_inquiries_stats";
-
-
-async function callGateway(action: GatewayAction, payload: Record<string, unknown> = {}) {
-  const secret = process.env.SABAN_GATEWAY_SECRET;
-  if (!secret) {
-    throw new Error("מפתח Gateway חסר בשרת. יש להגדיר SABAN_GATEWAY_SECRET ב-Vercel Environment Variables.");
-  }
-
-  const response = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-saban-secret": secret,
-      authorization: `Bearer ${secret}`,
-    },
-    body: JSON.stringify({ action, sheetId: SHEET_ID, ...payload }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(25_000),
-  });
-
-  const raw = await response.text();
-  let result: Record<string, unknown>;
-  try {
-    result = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    throw new Error(`Gateway החזיר תשובה שאינה JSON (HTTP ${response.status}): ${raw.slice(0, 140)}`);
-  }
-  if (!response.ok || result.success === false || result.error) {
-    throw new Error(String(result.error || result.message || `Gateway HTTP ${response.status}`));
-  }
-  return result;
+async function gateway(
+  action: import("./saban-gateway").SabanAction,
+  params: import("./saban-gateway").SabanPayload = {},
+) {
+  // Dynamic import keeps the secret-bearing transport inside server handlers.
+  const { callSabanGateway } = await import("./saban-gateway");
+  return callSabanGateway(action, params);
 }
+
+function asText(value: unknown): string {
+  return value == null ? "" : String(value).trim();
+}
+
+function asItemsJson(order: OrderInput): string {
+  const rawItems = Array.isArray(order.items) ? order.items : [];
+  const items = rawItems.map((item) => {
+    const row = item as Record<string, unknown>;
+    return {
+      sku: asText(row.sku || row.SKU),
+      qty: Number(row.qty ?? row.quantity ?? 0),
+    };
+  }).filter((item) => item.sku && Number.isFinite(item.qty) && item.qty > 0);
+
+  if (!items.length) throw new Error("יש להוסיף לפחות פריט אחד עם מק״ט וכמות תקינה.");
+  return JSON.stringify(items);
+}
+
+function requestedTime(order: OrderInput): string {
+  return [asText(order.requestedDate), asText(order.requestedWindow)]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export const healthCheckFn = createServerFn({ method: "GET" })
+  .handler(async () => gateway("health"));
 
 export const logisticsDictFn = createServerFn({ method: "POST" })
   .validator((data: { query?: string }) => data)
   .handler(async ({ data }) => {
-    const result = await callGateway("get_logistics_dict", { query: String(data.query || "").trim() });
-    const rows = Array.isArray(result.items) ? result.items : Array.isArray(result.data) ? result.data : [];
-    return { items: rows as Record<string, unknown>[], count: Number(result.count || result.total || rows.length), fetchedAt: String(result.fetchedAt || new Date().toISOString()) };
+    const q = asText(data.query);
+    const result = await gateway("lookup_catalog", { q });
+    const rows = Array.isArray(result.items)
+      ? result.items
+      : Array.isArray(result.data) ? result.data : [];
+    return {
+      items: rows as Record<string, unknown>[],
+      count: Number(result.count || result.total || rows.length),
+      fetchedAt: String(result.fetchedAt || new Date().toISOString()),
+    };
   });
 
+export const catalogLookupFn = createServerFn({ method: "POST" })
+  .validator((data: { q: string }) => data)
+  .handler(async ({ data }) => gateway("lookup_catalog", { q: asText(data.q) }));
+
 export const previewOrderFn = createServerFn({ method: "POST" })
-  .validator((data: { order: Record<string, unknown> }) => data)
-  .handler(async ({ data }) => callGateway("preview_order", { order: data.order }));
+  .validator((data: { order: OrderInput }) => data)
+  .handler(async ({ data }) => {
+    const itemsJson = asItemsJson(data.order);
+    return gateway("preview_order", { itemsJson });
+  });
 
 export const injectOrderFn = createServerFn({ method: "POST" })
-  .validator((data: { order: Record<string, unknown> }) => data)
-  .handler(async ({ data }) => callGateway("inject_order", { order: data.order }));
+  .validator((data: { order: OrderInput }) => data)
+  .handler(async ({ data }) => {
+    const order = data.order;
+    const itemsJson = asItemsJson(order);
+    return gateway("inject_order", {
+      customerName: asText(order.customerName || order.customer),
+      phone: asText(order.phone),
+      address: asText(order.address),
+      unloadingType: asText(order.unloadingType || order.unloadType),
+      requestedTime: asText(order.requestedTime) || requestedTime(order),
+      contactName: asText(order.contactName || order.contact),
+      notes: asText(order.notes || order.driverNotes),
+      itemsJson,
+    });
+  });
 
 export const deliveryNoteFn = createServerFn({ method: "POST" })
-  .validator((data: { query: string }) => data)
-  .handler(async ({ data }) => callGateway("get_delivery_note", { query: data.query.trim() }));
+  .validator((data: { query: string; phone?: string }) => data)
+  .handler(async ({ data }) => {
+    const phone = asText(data.phone || process.env.SABAN_GATEWAY_PHONE);
+    if (!phone) {
+      throw new Error("חסר מספר טלפון מאומת לשליפת תעודת משלוח. יש להגדיר SABAN_GATEWAY_PHONE או להעביר phone מאומת.");
+    }
+    return gateway("get_delivery_note", {
+      noteNumber: asText(data.query),
+      phone,
+    });
+  });
 
 export const mediaFn = createServerFn({ method: "POST" })
-  .validator((data: { sku: string }) => data)
-  .handler(async ({ data }) => callGateway("get_media", { sku: data.sku }));
+  .validator((data: { sku?: string; mediaCode?: string }) => data)
+  .handler(async ({ data }) => gateway("get_media", {
+    mediaCode: asText(data.mediaCode || data.sku),
+  }));
 
 export const inquiriesStatsFn = createServerFn({ method: "POST" })
   .validator((data: { managerPhone: string }) => data)
   .handler(async ({ data }) => {
-    const normalized = data.managerPhone.replace(/[^0-9]/g, "");
-    if (!MANAGEMENT_PHONES.has(normalized)) throw new Error("המספר אינו מורשה ללוח ההנהלה.");
-    const result = await callGateway("get_inquiries_stats", { managerPhone: normalized });
-    if (result.authorized !== true) {
-      throw new Error("ה-Gateway לא אישר הרשאת הנהלה. נדרשת אימות זהות בצד השרת.");
+    const phone = asText(data.managerPhone).replace(/[^0-9]/g, "");
+    if (!MANAGEMENT_PHONES.has(phone)) {
+      throw new Error("המספר אינו מורשה ללוח ההנהלה.");
     }
-    return result;
+    // GAS remains the authority for the authenticated phone and access policy.
+    return gateway("get_inquiries_stats", { phone });
   });
