@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
   deliveryNoteFn, injectOrderFn, inquiriesStatsFn, logisticsDictFn,
-  mediaFn, previewOrderFn,
+  previewOrderFn,
 } from "@/lib/noa-gateway.functions";
 
 export const Route = createFileRoute("/noa-console")({
@@ -212,7 +212,7 @@ function NoaConsole() {
 
       {tab === "notes" && <section className="space-y-4">
         <SectionTitle title="ארכיון תעודות משלוח" subtitle="חיפוש לפי מספר תעודה או שם לקוח, עם פתיחת קובץ Drive המאומת." />
-        <div className="relative"><Search className="absolute right-4 top-3.5 h-5 w-5 text-muted-foreground" /><input value={noteQuery} onChange={e => setNoteQuery(e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary pr-12" placeholder="מספר תעודה או שם לקוח…" /></div>
+        <div className="relative"><Search className="absolute right-4 top-3.5 h-5 w-5 text-muted-foreground" /><input value={noteQuery} onChange={e => setNoteQuery(e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary pr-12" placeholder="מספר תעודת משלוח…" /></div>
         {noteQuery.length < 2 && <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">הקלד לפחות שתי אותיות או ספרות כדי להתחיל חיפוש.</p>}
         {noteQueryResult.isFetching && <LoadingPanel label="מחפש בארכיון התעודות…" />}
         {noteQueryResult.isError && <ErrorPanel message={(noteQueryResult.error as Error).message} />}
@@ -245,10 +245,8 @@ function Info({ label, value }: { label: string; value: string }) {
   return <div className="rounded-xl bg-muted/40 p-3"><small className="block text-muted-foreground">{label}</small><strong className="mt-1 block break-words">{value || "—"}</strong></div>;
 }
 function CatalogCard({ product }: { product: Product }) {
-  const media = useQuery({ queryKey: ["noa-product-media", product.sku], queryFn: () => mediaFn({ data: { sku: product.sku } }), enabled: false, staleTime: 300_000 });
-  const mediaResult = media.data || {};
-  const imageUrl = product.imageUrl || str(mediaResult.imageUrl || mediaResult.url || mediaResult.driveLink);
-  return <Card className="overflow-hidden rounded-2xl p-4 transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex gap-3"><div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted">{imageUrl ? <img src={imageUrl} alt={product.name} loading="lazy" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-muted-foreground/50" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-[11px] font-bold text-primary">{product.sku || "ללא מק״ט"}</p><h3 className="line-clamp-2 text-sm font-extrabold">{product.name || "פריט ללא שם"}</h3><p className="mt-1 text-xs text-muted-foreground">{product.category || "קטגוריה לא הוגדרה"}</p></div></div><div className="mt-3 grid grid-cols-3 gap-2 border-t pt-3 text-xs"><Info label="יחידה" value={product.unit} /><Info label="משקל" value={product.weightKg ? `${product.weightKg} ק״ג` : "—"} /><Info label="מחסן" value={product.warehouse || "—"} /></div><div className="mt-2 flex items-center justify-between gap-2"><span className="text-[10px] text-muted-foreground">{media.isError ? "לא ניתן לטעון תמונה" : media.data ? "מדיה נטענה" : "מדיה לפי דרישה"}</span><button type="button" onClick={() => void media.refetch()} disabled={media.isFetching || !product.sku} className="rounded-lg border px-2 py-1 text-[10px] font-bold disabled:opacity-50">{media.isFetching ? "טוען…" : "טען תמונה"}</button></div></Card>;
+  const imageUrl = product.imageUrl;
+  return <Card className="overflow-hidden rounded-2xl p-4 transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex gap-3"><div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted">{imageUrl ? <img src={imageUrl} alt={product.name} loading="lazy" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-muted-foreground/50" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-[11px] font-bold text-primary">{product.sku || "ללא מק״ט"}</p><h3 className="line-clamp-2 text-sm font-extrabold">{product.name || "פריט ללא שם"}</h3><p className="mt-1 text-xs text-muted-foreground">{product.category || "קטגוריה לא הוגדרה"}</p></div></div><div className="mt-3 grid grid-cols-3 gap-2 border-t pt-3 text-xs"><Info label="יחידה" value={product.unit} /><Info label="משקל" value={product.weightKg ? String(product.weightKg) + " ק״ג" : "—"} /><Info label="מחסן" value={product.warehouse || "—"} /></div></Card>;
 }
 function InquiryList({ title, rows }: { title: string; rows: Record<string, unknown>[] }) {
   return <div className="mt-4"><h4 className="text-sm font-bold">{title} · {rows.length}</h4>{rows.length ? <ul className="mt-2 space-y-2">{rows.map((row, i) => <li key={str(row.noteNumber || row.id || i)} className="rounded-xl border p-3 text-sm"><strong>{str(row.noteNumber || row.id || "תעודה")}</strong> · {str(row.customer || row.customerName)}<p className="text-xs text-muted-foreground">{str(row.status || row.reason || "ממתין לטיפול")}</p></li>)}</ul> : <p className="mt-2 text-xs text-muted-foreground">אין רשומות או שה-Gateway לא החזיר פירוט.</p>}</div>;
