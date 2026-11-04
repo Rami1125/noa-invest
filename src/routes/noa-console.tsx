@@ -22,9 +22,9 @@ export const Route = createFileRoute("/noa-console")({
 type Tab = "orders" | "notes" | "catalog" | "management";
 type Product = { sku: string; name: string; category: string; unit: string; weightKg: number; warehouse: string; imageUrl?: string };
 type OrderLine = Product & { qty: number };
-type OrderForm = { customer: string; phone: string; address: string; unloadType: string; requestedDate: string; requestedWindow: string; driverNotes: string };
+type OrderForm = { customer: string; phone: string; address: string; contactName: string; unloadType: string; requestedDate: string; requestedWindow: string; driverNotes: string };
 
-const EMPTY_ORDER: OrderForm = { customer: "", phone: "", address: "", unloadType: "מנוף", requestedDate: "", requestedWindow: "", driverNotes: "" };
+const EMPTY_ORDER: OrderForm = { customer: "", phone: "", address: "", contactName: "", unloadType: "מנוף", requestedDate: "", requestedWindow: "", driverNotes: "" };
 const TABS: { id: Tab; label: string; hint: string; icon: typeof Package }[] = [
   { id: "orders", label: "הזמנה חדשה", hint: "פתיחה, חישוב ושידור", icon: Package },
   { id: "notes", label: "ארכיון תעודות", hint: "חיפוש וצפייה ב-PDF", icon: FileText },
@@ -183,7 +183,7 @@ function NoaConsole() {
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="שם לקוח"><input value={order.customer} onChange={e => updateOrder("customer", e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary" placeholder="שם הלקוח" /></Field>
               <Field label="טלפון"><input value={order.phone} onChange={e => updateOrder("phone", e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary" inputMode="tel" placeholder="05X-XXXXXXX" /></Field>
-              <Field label="כתובת אספקה מלאה" wide><input value={order.address} onChange={e => updateOrder("address", e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary" placeholder="רחוב, מספר, עיר, פרטי גישה" /></Field>
+              <Field label="כתובת אספקה מלאה" wide><input value={order.address} onChange={e => updateOrder("address", e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary" placeholder="רחוב, מספר, עיר, פרטי גישה" /></Field>\n              <Field label="איש קשר באתר"><input value={order.contactName} onChange={e => updateOrder("contactName", e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary" placeholder="שם איש הקשר לקבלת הסחורה" /></Field>
               <Field label="סוג פריקה"><select value={order.unloadType} onChange={e => updateOrder("unloadType", e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary"><option>מנוף</option><option>ידני</option><option>מלגזה</option></select></Field>
               <Field label="תאריך מבוקש"><input type="date" value={order.requestedDate} onChange={e => updateOrder("requestedDate", e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary" /></Field>
               <Field label="חלון אספקה"><input value={order.requestedWindow} onChange={e => updateOrder("requestedWindow", e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary" placeholder="למשל 07:00–10:00" /></Field>
@@ -211,7 +211,7 @@ function NoaConsole() {
       </section>}
 
       {tab === "notes" && <section className="space-y-4">
-        <SectionTitle title="ארכיון תעודות משלוח" subtitle="חיפוש לפי מספר תעודה או שם לקוח, עם פתיחת קובץ Drive המאומת." />
+        <SectionTitle title="ארכיון תעודות משלוח" subtitle="חיפוש לפי מספר תעודת משלוח, עם פתיחת קובץ Drive המאומת." />
         <div className="relative"><Search className="absolute right-4 top-3.5 h-5 w-5 text-muted-foreground" /><input value={noteQuery} onChange={e => setNoteQuery(e.target.value)} className="w-full min-h-11 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-primary pr-12" placeholder="מספר תעודת משלוח…" /></div>
         {noteQuery.length < 2 && <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">הקלד לפחות שתי אותיות או ספרות כדי להתחיל חיפוש.</p>}
         {noteQueryResult.isFetching && <LoadingPanel label="מחפש בארכיון התעודות…" />}
