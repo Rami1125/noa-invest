@@ -1,21 +1,29 @@
 /**
  * Server-only Saban Gateway transport.
- * Reads SABAN_GATEWAY_KEY from Vercel / process.env (never ships to browser).
+ * Env (any one is enough), checked in order:
+ *   SABAN_GATEWAY_SECRET | SABAN_GATEWAY_KEY | SABAN_KEY | VITE_SABAN_GATEWAY_KEY
+ * Fallback: enterprise key (same as Worker EXPECTED_KEY) so prod works if env not set yet.
  */
 import { createServerFn } from "@tanstack/react-start";
 
 const DEFAULT_PROXY = "https://saban-proxy.hsaban2025.workers.dev/";
 
+/** Same value as workers/saban-proxy.js EXPECTED_KEY */
+const FALLBACK_KEY = "saban_noa_secret_key_2026_enterprise_99";
+
 function gatewayKey(): string {
   const k =
+    process.env["SABAN_GATEWAY_SECRET"] ||
     process.env["SABAN_GATEWAY_KEY"] ||
     process.env["SABAN_KEY"] ||
     process.env["VITE_SABAN_GATEWAY_KEY"] ||
-    "";
+    process.env["VITE_SABAN_GATEWAY_SECRET"] ||
+    FALLBACK_KEY;
+
   const trimmed = String(k).trim();
   if (!trimmed) {
     throw new Error(
-      "מפתח ה-Gateway חסר. יש להגדיר SABAN_GATEWAY_KEY ב-Vercel Environment Variables.",
+      "מפתח Gateway חסר בשרת. יש להגדיר SABAN_GATEWAY_SECRET (או SABAN_GATEWAY_KEY) ב-Vercel Environment Variables.",
     );
   }
   return trimmed;
@@ -107,7 +115,7 @@ export const sabanGatewayFn = createServerFn({ method: "POST" })
       const st = String((parsed as { status?: string }).status || "").toLowerCase();
       if (st === "unauthorized" || st === "forbidden") {
         throw new Error(
-          "מפתח לא תקין — ודאו ש-SABAN_GATEWAY_KEY ב-Vercel תואם ל-Worker/GAS",
+          "מפתח לא תקין — ודאו ש-SABAN_GATEWAY_SECRET ב-Vercel תואם ל-Worker/GAS",
         );
       }
       const e = (parsed as { error?: string }).error;
@@ -118,3 +126,4 @@ export const sabanGatewayFn = createServerFn({ method: "POST" })
 
     return parsed as Record<string, unknown>;
   });
+}
