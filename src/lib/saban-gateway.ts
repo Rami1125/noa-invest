@@ -1,11 +1,6 @@
 /**
  * Saban Enterprise API Gateway — client API
- * Transport: server fn (src/lib/saban-gateway.functions.ts)
- * Auth: SABAN_GATEWAY_KEY in Vercel Environment Variables (server only)
- *
- * Contract actions:
- *   health | get_inquiries_stats | get_delivery_note | inject_order
- *   lookup_catalog | preview_order | get_media
+ * lookup_catalog GAS shape: { status, query, count, results: [...] }
  */
 
 import { sabanGatewayFn } from "@/lib/saban-gateway.functions";
@@ -138,6 +133,49 @@ function toItemsJson(items: OrderLineInput[]): string {
   );
 }
 
+function extractCatalogItems(data: Record<string, unknown>): CatalogItem[] {
+  const raw = Array.isArray(data.results)
+    ? data.results
+    : Array.isArray(data.items)
+      ? data.items
+      : Array.isArray(data.products)
+        ? data.products
+        : Array.isArray(data.data)
+          ? data.data
+          : [];
+
+  return (raw as Record<string, unknown>[]).map((row) => {
+    const sku = String(row.sku ?? row.SKU ?? "");
+    const name = String(row.name ?? row.productName ?? "");
+    const unit = row.unit != null ? String(row.unit) : undefined;
+    // GAS sometimes puts warehouse emoji string into weightKg
+    const weightRaw = row.weightKg;
+    let weightKg: number | undefined;
+    let warehouse: string | undefined =
+      row.warehouse != null ? String(row.warehouse) : undefined;
+    if (typeof weightRaw === "number") {
+      weightKg = weightRaw;
+    } else if (typeof weightRaw === "string") {
+      const n = Number(weightRaw);
+      if (!Number.isNaN(n) && weightRaw.trim() !== "") weightKg = n;
+      else if (!warehouse) warehouse = weightRaw;
+    }
+    if (row.depositSku != null && weightKg == null) {
+      const d = Number(row.depositSku);
+      if (!Number.isNaN(d)) weightKg = d;
+    }
+    return {
+      ...row,
+      sku,
+      name,
+      unit,
+      weightKg,
+      warehouse,
+      category: row.category != null ? String(row.category) : undefined,
+    } as CatalogItem;
+  });
+}
+
 async function gatewayCall<T>(
   action: GatewayAction,
   params: Record<string, unknown> = {},
@@ -160,8 +198,6 @@ async function gatewayCall<T>(
     throw new GatewayError(msg, status, err);
   }
 }
-
-// ─── Public API ───────────────────────────────────────────────
 
 export function health(signal?: AbortSignal) {
   return gatewayCall<{ ok?: boolean; status?: string; version?: string }>(
@@ -208,12 +244,20 @@ export function injectOrder(payload: InjectOrderPayload, signal?: AbortSignal) {
   );
 }
 
-export function lookupCatalog(q: string, signal?: AbortSignal) {
-  return gatewayCall<{ items?: CatalogItem[]; products?: CatalogItem[] }>(
+export async function lookupCatalog(q: string, signal?: AbortSignal) {
+  const data = await gatewayCall<Record<string, unknown>>(
     "lookup_catalog",
     { q },
     { signal },
   );
+  const items = extractCatalogItems(data);
+  return {
+    ...data,
+    items,
+    products: items,
+    results: items,
+    count: Number(data.count ?? items.length),
+  };
 }
 
 /** @deprecated alias — prefer lookupCatalog */
@@ -242,9 +286,8 @@ export async function getCatalog(
   signal?: AbortSignal,
 ): Promise<{ items?: CatalogItem[]; total?: number }> {
   try {
-    const res = await lookupCatalog("", signal);
-    const items = res.items || res.products || [];
-    return { items, total: items.length };
+    const res = await lookupCatalog("מלט", signal);
+    return { items: res.items || [], total: res.count ?? res.items?.length ?? 0 };
   } catch {
     return { items: [], total: 0 };
   }
