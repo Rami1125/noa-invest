@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircle, ArrowUpRight, BadgeCheck, Boxes, CheckCircle2, Clock3, FileSearch,
@@ -71,6 +71,7 @@ function NoaConsole() {
   const [receipt, setReceipt] = useState<Record<string, unknown> | null>(null);
   const [noteQuery, setNoteQuery] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogVisibleCount, setCatalogVisibleCount] = useState(90);
   const [selectedSku, setSelectedSku] = useState("");
   const [managerPhone, setManagerPhone] = useState("");
 
@@ -148,7 +149,7 @@ function NoaConsole() {
   const note = (noteResult.note || noteResult.data || noteResult) as Record<string, unknown>;
   const noteFound = Boolean(note && (note.noteNumber || note.number || note.customer || note.customerName || note.driveLink));
   const notePdf = str(note.driveLink || note.driveUrl || note.pdfUrl);
-  const noteRows = Array.isArray(noteResult.notes) ? noteResult.notes as Record<string, unknown>[] : [];
+  const noteRows = Array.isArray(noteResult.notes) ? noteResult.notes as Record<string, unknown>[] : Array.isArray(noteResult.data) ? noteResult.data as Record<string, unknown>[] : [];
 
   const catalogCount = num(catalogQueryResult.data?.count || catalogQueryResult.data?.total);
   const [inquiries, setInquiries] = useState<Record<string, unknown> | null>(null);
@@ -225,7 +226,7 @@ function NoaConsole() {
         <SectionTitle title="קטלוג מוצרים לוגיסטי" subtitle="חיפוש במילון_לוגיסט. נתוני הקטלוג מוצגים כפי שהוחזרו מהמקור." action={<span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">{catalogCount || "—"} פריטים לפי תשובת המקור</span>} />
         <div className="relative"><Search className="absolute right-4 top-3.5 h-5 w-5 text-muted-foreground" /><input value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)} className="field pr-12" placeholder="חיפוש מק״ט, שם, קטגוריה או סלנג…" /></div>
         {catalogQueryResult.isFetching && <LoadingPanel label="טוען פריטי מילון לוגיסטי…" />}{catalogQueryResult.isError && <ErrorPanel message={(catalogQueryResult.error as Error).message} />}
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{catalogProducts.slice(0, 90).map(p => <CatalogCard key={p.sku || p.name} product={p} />)}</div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{catalogProducts.slice(0, catalogVisibleCount).map(p => <CatalogCard key={p.sku || p.name} product={p} />)}</div>{catalogProducts.length > catalogVisibleCount && <div className="text-center"><Button variant="outline" onClick={() => setCatalogVisibleCount(n => n + 90)}>הצג עוד פריטים ({catalogProducts.length - catalogVisibleCount} נותרו)</Button></div>}
         {catalogProducts.length === 0 && !catalogQueryResult.isFetching && !catalogQueryResult.isError && <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">הקלד מונח חיפוש כדי לטעון פריטים מהשרת.</p>}
       </section>}
 
@@ -238,7 +239,7 @@ function NoaConsole() {
   </div>;
 }
 
-function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
+function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
   return <label className={wide ? "block sm:col-span-2" : "block"}><span className="mb-1.5 block text-xs font-bold text-muted-foreground">{label}</span>{children}</label>;
 }
 function Info({ label, value }: { label: string; value: string }) {
