@@ -1,18 +1,17 @@
 /**
- * Saban Enterprise API Gateway client
- * Proxy: https://saban-proxy.hsaban2025.workers.dev/
- * Auth: JSON body field `key` (NOT secret, NOT Authorization-only)
- * Method: POST application/json (preferred) or GET query params
+ * Saban Enterprise API Gateway — client API
+ * Transport: server fn (src/lib/saban-gateway.functions.ts)
+ * Auth: SABAN_GATEWAY_KEY in Vercel Environment Variables (server only)
  *
  * Contract actions:
  *   health | get_inquiries_stats | get_delivery_note | inject_order
  *   lookup_catalog | preview_order | get_media
  */
 
+import { sabanGatewayFn } from "@/lib/saban-gateway.functions";
+
 export const SABAN_GATEWAY = {
   baseUrl: "https://saban-proxy.hsaban2025.workers.dev/",
-  /** Must be sent as JSON field `key` */
-  key: "saban_noa_secret_key_2026_enterprise_99",
   sheetId: "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw",
   sheetTitle: "בדיקת תעודות משלוח-",
   managers: {
@@ -139,101 +138,27 @@ function toItemsJson(items: OrderLineInput[]): string {
   );
 }
 
-/**
- * Core transport — always POST JSON with `action` + `key` in body.
- * No reliance on Authorization headers for auth (Worker/GAS expect `key`).
- */
 async function gatewayCall<T>(
   action: GatewayAction,
   params: Record<string, unknown> = {},
-  init?: { signal?: AbortSignal },
+  _init?: { signal?: AbortSignal },
 ): Promise<T> {
-  const url = SABAN_GATEWAY.baseUrl.replace(/\/?$/, "/");
-
-  // Strip undefined / null so GAS does not see empty noise
-  const clean: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== "") clean[k] = v;
-  }
-
-  const body = {
-    action,
-    key: SABAN_GATEWAY.key,
-    ...clean,
-  };
-
-  let res: Response;
   try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: init?.signal,
+    const data = await sabanGatewayFn({
+      data: { action, params },
     });
+    return data as T;
   } catch (err) {
-    const msg =
-      err instanceof Error ? err.message : "Network error talking to Saban Gateway";
-    throw new GatewayError(
-      `שער ה-API לא זמין (${msg}). בדקו את Cloudflare Worker.`,
-      0,
-      err,
-    );
+    const msg = err instanceof Error ? err.message : String(err);
+    const status = /חסר|SABAN_GATEWAY_KEY/i.test(msg)
+      ? 0
+      : /unauth|מפתח לא תקין/i.test(msg)
+        ? 401
+        : /1101/.test(msg)
+          ? 1101
+          : 500;
+    throw new GatewayError(msg, status, err);
   }
-
-  const text = await res.text();
-  let data: unknown = null;
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      // Worker/GAS sometimes returns HTML on crash
-      if (/error code:\s*1101/i.test(text) || /Worker threw exception/i.test(text)) {
-        throw new GatewayError(
-          "Cloudflare Worker 1101 — יש לעדכן את ה-Worker (CORS + redirect:follow + key)",
-          1101,
-          text.slice(0, 400),
-        );
-      }
-      data = { raw: text.slice(0, 500) };
-    }
-  }
-
-  if (!res.ok) {
-    const errMsg =
-      (data &&
-        typeof data === "object" &&
-        String(
-          (data as { error?: string; message?: string }).error ||
-            (data as { message?: string }).message ||
-            `HTTP ${res.status}`,
-        )) ||
-      `HTTP ${res.status}`;
-    throw new GatewayError(errMsg, res.status, data);
-  }
-
-  if (data && typeof data === "object") {
-    const st = String(
-      (data as { status?: string; ok?: boolean }).status ?? "",
-    ).toLowerCase();
-    if (st === "unauthorized" || st === "forbidden") {
-      throw new GatewayError(
-        "מפתח לא תקין — ודאו ששדה key נשלח בגוף ה-JSON",
-        401,
-        data,
-      );
-    }
-    if ((data as { error?: string }).error) {
-      const e = String((data as { error: string }).error);
-      if (/unauth|invalid.?key|forbidden/i.test(e)) {
-        throw new GatewayError(e, 401, data);
-      }
-    }
-  }
-
-  return data as T;
 }
 
 // ─── Public API ───────────────────────────────────────────────
@@ -312,12 +237,10 @@ export function getMedia(mediaCode: string, signal?: AbortSignal) {
   );
 }
 
-/** Optional bulk list — falls back to empty if backend has no get_catalog */
 export async function getCatalog(
   _params?: { limit?: number; offset?: number },
   signal?: AbortSignal,
 ): Promise<{ items?: CatalogItem[]; total?: number }> {
-  // Backend contract exposes lookup_catalog; use empty-q or common seed terms
   try {
     const res = await lookupCatalog("", signal);
     const items = res.items || res.products || [];
