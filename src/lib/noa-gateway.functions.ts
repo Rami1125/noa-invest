@@ -96,9 +96,9 @@ export const deliveryNoteFn = createServerFn({ method: "POST" })
   });
 
 export const mediaFn = createServerFn({ method: "POST" })
-  .validator((data: { sku?: string; mediaCode?: string }) => data)
+  .validator((data: { mediaCode: string }) => data)
   .handler(async ({ data }) => gateway("get_media", {
-    mediaCode: asText(data.mediaCode || data.sku),
+    mediaCode: asText(data.mediaCode),
   }));
 
 export const inquiriesStatsFn = createServerFn({ method: "POST" })
