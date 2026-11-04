@@ -11,6 +11,7 @@ import {
   Search,
   LayoutGrid,
   MapPin,
+  LayoutDashboard,
 } from "lucide-react";
 import { type ReactNode, useState, useEffect, useRef } from "react";
 import { useLocation, Link } from "@tanstack/react-router";
@@ -37,6 +38,7 @@ const DESKTOP_NAV = [
   { to: "/customers", label: "תיקי לקוחות", icon: Users },
   { to: "/sites", label: "אתרי אספקה", icon: MapPin },
   { to: "/ituran", label: " נתוני-איתורן", icon: Satellite },
+  { to: "/noa-console", label: "מרכז ניהול נועה AI", icon: LayoutDashboard },
   { to: "/noa-brain", label: "נועה Brain", icon: MessageCircle },
   { to: "/chat", label: "צ'אט נועה AI", icon: MessageCircle },
   { to: "/inquiry", label: "בירור תעודות", icon: Search },
