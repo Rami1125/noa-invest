@@ -1,6 +1,6 @@
 /**
- * Legacy Noa gateway server fns — aligned to Saban API contract.
- * lookup_catalog returns { results: [...], count } — not items.
+ * Noa gateway server fns — Saban API contract +
+ * upsert_product_media / delete_product_media (require GAS handlers).
  */
 import { createServerFn } from "@tanstack/react-start";
 
@@ -21,7 +21,9 @@ type GatewayAction =
   | "inject_order"
   | "get_delivery_note"
   | "get_media"
-  | "get_inquiries_stats";
+  | "get_inquiries_stats"
+  | "upsert_product_media"
+  | "delete_product_media";
 
 function gatewayKey(): string {
   return (
@@ -33,7 +35,6 @@ function gatewayKey(): string {
   ).trim();
 }
 
-/** Extract product rows from any known GAS response shape */
 function extractCatalogRows(result: Record<string, unknown>): Record<string, unknown>[] {
   if (Array.isArray(result.results)) return result.results as Record<string, unknown>[];
   if (Array.isArray(result.items)) return result.items as Record<string, unknown>[];
@@ -92,7 +93,6 @@ async function callGateway(
   return result;
 }
 
-/** Catalog — GAS returns { status, query, count, results: [...] } */
 export const logisticsDictFn = createServerFn({ method: "POST" })
   .validator((data: { query?: string }) => data)
   .handler(async ({ data }) => {
@@ -177,6 +177,37 @@ export const mediaFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const mediaCode = String(data.mediaCode || data.sku || "").trim();
     return callGateway("get_media", { mediaCode });
+  });
+
+/** Save / update image URL in מאגר_מדיה + link on מילון_לוגיסט */
+export const upsertProductMediaFn = createServerFn({ method: "POST" })
+  .validator(
+    (data: { sku: string; url: string; mediaCode?: string; name?: string }) => data,
+  )
+  .handler(async ({ data }) => {
+    const sku = String(data.sku || "").trim();
+    const url = String(data.url || "").trim();
+    const mediaCode = String(data.mediaCode || (sku ? `SKU_${sku}` : "")).trim();
+    if (!sku) throw new Error("חסר מק\"ט");
+    if (!url) throw new Error("חסר קישור תמונה");
+    if (!mediaCode) throw new Error("חסר mediaCode");
+    return callGateway("upsert_product_media", {
+      sku,
+      url,
+      mediaCode,
+      name: data.name,
+      imageUrl: url,
+    });
+  });
+
+/** Remove media link for product */
+export const deleteProductMediaFn = createServerFn({ method: "POST" })
+  .validator((data: { sku: string; mediaCode?: string }) => data)
+  .handler(async ({ data }) => {
+    const sku = String(data.sku || "").trim();
+    const mediaCode = String(data.mediaCode || (sku ? `SKU_${sku}` : "")).trim();
+    if (!sku) throw new Error("חסר מק\"ט");
+    return callGateway("delete_product_media", { sku, mediaCode });
   });
 
 export const inquiriesStatsFn = createServerFn({ method: "POST" })
