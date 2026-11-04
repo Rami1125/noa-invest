@@ -1,66 +1,53 @@
 /**
  * Cloudflare Worker: saban-proxy
- * Deploy: wrangler deploy (or paste into CF Workers dashboard)
+ * הדביקו בקוד Worker ב-Cloudflare Dashboard → Save & Deploy
  *
- * - CORS full (OPTIONS → 204)
- * - Auth via JSON body `key` or query `key`
- * - Forwards to Google Apps Script with redirect: 'follow'
- * - Returns clean JSON to frontend (no 1101 on GAS 302)
+ * שיפורים מול הגרסה הפשוטה:
+ * - OPTIONS 204 (CORS Preflight) — חובה ל-POST מ-Vercel
+ * - לא מעבירים request.headers גולמיים (שובר Host / CF)
+ * - body נקרא כטקסט ומועבר מחדש (לא stream שבור)
+ * - redirect: 'follow' בולע 302 של Google Apps Script
+ * - key + action ב-JSON body (חוזה Frontend / GAS)
  */
 
 const GAS_EXEC =
-  "https://script.google.com/macros/s/AKfycbx1f8JmxEtfwfMUhd3b_3vCf9ygKV5S7Orm3p7CsyDhNce2obQLg331hZpjOetaqQvcHw/exec";
+  "https://script.google.com/macros/s/AKfycbwx7Vwrlrx_gKpPn5gFpHXsiBsV8TImeSWG5S1wpVDMAZkNCiOQGkNhFuaVD6AAVTv6SA/exec";
 
 const EXPECTED_KEY = "saban_noa_secret_key_2026_enterprise_99";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization, X-Saban-Secret",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Accept, Authorization, X-Saban-Secret",
   "Access-Control-Max-Age": "86400",
 };
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8", ...CORS },
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...CORS,
+    },
   });
 }
 
-async function parseIncoming(request) {
-  const url = new URL(request.url);
-  const q = Object.fromEntries(url.searchParams.entries());
-
-  if (request.method === "GET") {
-    return q;
-  }
-
-  const ct = request.headers.get("content-type") || "";
-  if (ct.includes("application/json")) {
-    try {
-      const body = await request.json();
-      return { ...q, ...(body && typeof body === "object" ? body : {}) };
-    } catch {
-      return { ...q, _parseError: "invalid_json" };
-    }
-  }
-
-  // form / text fallback
-  try {
-    const text = await request.text();
-    if (!text) return q;
-    try {
-      return { ...q, ...JSON.parse(text) };
-    } catch {
-      return { ...q, raw: text };
-    }
-  } catch {
-    return q;
-  }
+function textResponse(body, status = 200, contentType = "application/json") {
+  return new Response(body, {
+    status,
+    headers: {
+      "Content-Type": contentType.includes("json")
+        ? "application/json; charset=utf-8"
+        : contentType,
+      ...CORS,
+    },
+  });
 }
 
 export default {
   async fetch(request) {
+    // ── CORS preflight ──────────────────────────────────────
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS });
     }
@@ -69,28 +56,49 @@ export default {
       return json({ error: "method_not_allowed" }, 405);
     }
 
-    let payload;
-    try {
-      payload = await parseIncoming(request);
-    } catch (e) {
-      return json({ error: "bad_request", message: String(e) }, 400);
-    }
+    const incomingUrl = new URL(request.url);
 
-    if (payload._parseError) {
-      return json({ error: "invalid_json" }, 400);
+    // ── Parse body / query ──────────────────────────────────
+    let payload = Object.fromEntries(incomingUrl.searchParams.entries());
+    let rawBody = "";
+
+    if (request.method === "POST") {
+      try {
+        rawBody = await request.text();
+        if (rawBody) {
+          try {
+            const parsed = JSON.parse(rawBody);
+            if (parsed && typeof parsed === "object") {
+              payload = { ...payload, ...parsed };
+            }
+          } catch {
+            // keep query-only; forward raw below if needed
+          }
+        }
+      } catch (e) {
+        return json({ error: "bad_request", message: String(e) }, 400);
+      }
     }
 
     const key = String(payload.key || payload.secret || "").trim();
-    if (key !== EXPECTED_KEY) {
+    const action = String(payload.action || "").trim();
+
+    // Auth (body key preferred — matches Frontend server fn)
+    if (key && key !== EXPECTED_KEY) {
       return json({ status: "unauthorized", error: "Invalid key" }, 401);
     }
-
-    const action = String(payload.action || "").trim();
-    if (!action) {
-      return json({ error: "missing_action" }, 400);
+    // If key missing entirely on POST with action — reject
+    if (request.method === "POST" && action && !key) {
+      return json(
+        {
+          status: "unauthorized",
+          error: "Missing key — send JSON field key",
+        },
+        401,
+      );
     }
 
-    // Local health — no need to hit GAS
+    // Local health (no GAS round-trip)
     if (action === "health") {
       return json({
         ok: true,
@@ -101,39 +109,46 @@ export default {
       });
     }
 
-    // Forward full payload (including key + action) to GAS
-    const forwardBody = { ...payload };
-    delete forwardBody._parseError;
-    delete forwardBody.raw;
-
+    // ── Forward to Google Apps Script ───────────────────────
+    // Prefer POST JSON body (Frontend contract). GET keeps query string.
     try {
-      const gasRes = await fetch(GAS_EXEC, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(forwardBody),
-        redirect: "follow",
-      });
+      let gasRes;
 
-      const text = await gasRes.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        // GAS sometimes returns HTML on error
-        return json(
-          {
-            error: "gas_non_json",
-            status: gasRes.status,
-            snippet: text.slice(0, 300),
+      if (request.method === "GET") {
+        const target = GAS_EXEC + incomingUrl.search;
+        gasRes = await fetch(target, {
+          method: "GET",
+          redirect: "follow",
+        });
+      } else {
+        // Rebuild clean JSON for GAS (action + key + params)
+        const forward =
+          rawBody && payload.action
+            ? JSON.stringify(payload)
+            : rawBody || JSON.stringify(payload);
+
+        gasRes = await fetch(GAS_EXEC, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
           },
-          502,
-        );
+          body: forward,
+          redirect: "follow",
+        });
       }
 
-      return json(data, gasRes.ok ? 200 : gasRes.status >= 400 ? gasRes.status : 200);
+      const data = await gasRes.text();
+      const ct = gasRes.headers.get("content-type") || "application/json";
+
+      // Always expose CORS; prefer JSON content-type when body looks like JSON
+      const looksJson =
+        data.trim().startsWith("{") || data.trim().startsWith("[");
+      return textResponse(
+        data,
+        gasRes.status,
+        looksJson ? "application/json; charset=utf-8" : ct,
+      );
     } catch (e) {
       return json(
         {
