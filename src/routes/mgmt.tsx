@@ -1,5 +1,6 @@
 /**
- * דף ד': לוח בקרת הנהלה ובירורים (הראל / ראמי בלבד)
+ * דף ד': לוח בקרת הנהלה
+ * Gateway: get_inquiries_stats({ phone, key, action })
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
@@ -9,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, AlertTriangle, RefreshCw, Crown } from "lucide-react";
+import { ShieldCheck, AlertTriangle, RefreshCw, Crown } from "lucide-react";
 import {
   getInquiriesStats,
   isManagerPhone,
@@ -23,9 +24,16 @@ export const Route = createFileRoute("/mgmt")({
   component: MgmtPage,
 });
 
+function normalizePhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("0")) return `972${digits.slice(1)}`;
+  return digits;
+}
+
 function MgmtPage() {
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<"harel" | "rami" | null>(null);
+  const [verifiedPhone, setVerifiedPhone] = useState("");
   const [stats, setStats] = useState<InquiriesStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,16 +47,20 @@ function MgmtPage() {
       setRole(null);
       return;
     }
+    const norm = normalizePhone(phone);
     setRole(who);
+    setVerifiedPhone(norm);
     toast.success(`שלום ${SABAN_GATEWAY.managers[who].name}`);
-    void loadStats();
+    void loadStats(norm);
   };
 
-  const loadStats = async () => {
+  const loadStats = async (p?: string) => {
+    const usePhone = p || verifiedPhone;
+    if (!usePhone) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await getInquiriesStats();
+      const res = await getInquiriesStats(usePhone);
       setStats(res);
     } catch (e) {
       const msg =
@@ -64,15 +76,15 @@ function MgmtPage() {
     }
   };
 
-  const harelOpen = stats?.harelOpen ?? 0;
-  const ramiOpen = stats?.ramiOpen ?? 0;
-  const total = stats?.totalOpen ?? harelOpen + ramiOpen;
+  const harelOpen = Number(stats?.harelOpen ?? 0);
+  const ramiOpen = Number(stats?.ramiOpen ?? 0);
+  const total = Number(stats?.totalOpen ?? stats?.open ?? harelOpen + ramiOpen);
 
   return (
     <div dir="rtl">
       <PageHeader
         title="לוח בקרת הנהלה"
-        subtitle="בירור_הראל_מנכל · בירור_ראמי · גישה מאומתת בטלפון"
+        subtitle="get_inquiries_stats · phone מאומת"
       />
       <div className="mx-auto max-w-3xl space-y-4 px-4 py-5 md:px-8">
         {!role ? (
@@ -82,7 +94,8 @@ function MgmtPage() {
               אימות טלפוני
             </div>
             <p className="text-sm text-muted-foreground">
-              הזינו את מספר הנייד של הראל או ראמי (כולל קידומת 972 או 0).
+              הזינו נייד של הראל ({SABAN_GATEWAY.managers.harel.phone}) או ראמי (
+              {SABAN_GATEWAY.managers.rami.phone}).
             </p>
             <Input
               value={phone}
@@ -90,7 +103,7 @@ function MgmtPage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") unlock();
               }}
-              placeholder="97250… או 05…"
+              placeholder="972508860896"
               className="h-11"
               inputMode="tel"
             />
@@ -137,11 +150,7 @@ function MgmtPage() {
 
             {stats && (
               <div className="grid gap-3 sm:grid-cols-3">
-                <StatCard
-                  title="סה״כ פתוחים"
-                  value={total}
-                  alert={total > 0}
-                />
+                <StatCard title="סה״כ פתוחים" value={total} alert={total > 0} />
                 <StatCard
                   title="בירור הראל מנכ״ל"
                   value={harelOpen}
@@ -163,14 +172,6 @@ function MgmtPage() {
                   <AlertTriangle className="h-4 w-4" />
                   יש {total} תעודות ממתינות לבירור
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  עודכן:{" "}
-                  {stats?.updatedAt ||
-                    new Date().toLocaleString("he-IL", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                </p>
               </Card>
             )}
 
@@ -198,11 +199,7 @@ function StatCard({
   alert?: boolean;
 }) {
   return (
-    <Card
-      className={`rounded-2xl p-4 ${
-        alert ? "border-amber-500/40 bg-amber-500/5" : ""
-      }`}
-    >
+    <Card className={`rounded-2xl p-4 ${alert ? "border-amber-500/40 bg-amber-500/5" : ""}`}>
       <div className="text-[10px] font-bold text-muted-foreground">{title}</div>
       <div className="mt-1 text-3xl font-black tabular-nums">{value}</div>
       {sub && <div className="mt-1 text-[10px] text-muted-foreground">{sub}</div>}
