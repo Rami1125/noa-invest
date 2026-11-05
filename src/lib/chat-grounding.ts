@@ -122,9 +122,12 @@ export type PtoSessionFact = {
   date?: string;
 };
 
-/** סיכום PTO מאומת לתשובת נועה (בלי UTC גולמי, עם כתובת ומספור ברור) */
+/** סיכום PTO מאומת — שעון ישראל, כתובת, בלי | כדי לא לשבור טבלאות בממשק */
 export function formatPtoOpeningsSummary(sessions: PtoSessionFact[]): string {
   const opens = sessions.filter((s) => !s.orphan || s.orphan === "missing_close");
+  const complete = opens.filter(
+    (s) => s.durationMin != null && Number.isFinite(Number(s.durationMin)) && Number(s.durationMin) > 0,
+  );
   const matched = opens.filter((s) => s.matchedNoteId);
   const orphans = sessions.filter((s) => s.orphan);
   const lines: string[] = [];
@@ -132,8 +135,9 @@ export function formatPtoOpeningsSummary(sessions: PtoSessionFact[]): string {
   lines.push("פתיחות מנוף — טאב איתוראן_PTO");
   lines.push("");
   lines.push(`סה\"כ פתיחות במדגם: ${opens.length}`);
-  lines.push(`מתוכן שויכו לתעודת משלוח: ${matched.length}`);
-  lines.push(`יתומים / חלקיים (חסר פתיחה או סגירה): ${orphans.length}`);
+  lines.push(`עם משך מחושב (פתיחה+סגירה): ${complete.length}`);
+  lines.push(`שויכו לתעודת משלוח: ${matched.length}`);
+  lines.push(`יתומים או חלקיים: ${orphans.length}`);
   lines.push("");
 
   if (opens.length === 0) {
@@ -141,33 +145,50 @@ export function formatPtoOpeningsSummary(sessions: PtoSessionFact[]): string {
     return lines.join("\n");
   }
 
-  lines.push("פירוט לפי שעון ישראל (מהחדש לישן):");
+  lines.push("פירוט (שעון ישראל, מהחדש לישן)");
   lines.push("");
 
   opens.slice(0, 40).forEach((s, i) => {
-    const when = formatIsraelDateTime(s.openIso) || s.date || "—";
-    const truck = s.truck || "—";
-    const driver = s.driver ? ` · נהג: ${s.driver}` : "";
-    const addr = (s.address || "כתובת לא ידועה").replace(/\s+/g, " ").trim();
-    const dur =
-      s.durationMin != null && Number.isFinite(Number(s.durationMin))
-        ? `${s.durationMin} דק׳`
-        : "משך לא ידוע";
-    const note = s.matchedNoteId ? `תעודה ${s.matchedNoteId}` : "לא שויך לתעודה";
+    const when = formatIsraelDateTime(s.openIso) || s.date || "לא ידוע";
+    const close =
+      s.closeIso && formatIsraelDateTime(s.closeIso)
+        ? formatIsraelDateTime(s.closeIso)
+        : "";
+    const truck = (s.truck || "").trim() || "לא צוין";
+    const driver = (s.driver || "").trim();
+    const addr = (s.address || "").replace(/\s+/g, " ").trim();
+    const hasDur = s.durationMin != null && Number.isFinite(Number(s.durationMin));
+    const dur = hasDur
+      ? `${Number(s.durationMin)} דקות`
+      : "לא חושב (חסרה סגירה או פתיחה)";
+    const note = s.matchedNoteId
+      ? `תעודת משלוח ${s.matchedNoteId}`
+      : "לא נמצאה תעודה תואמת לפי תאריך ומשאית";
+    const status = s.orphan
+      ? s.orphan === "missing_close"
+        ? "סטטוס: נפתח ולא נסגר"
+        : "סטטוס: נסגר ללא פתיחה"
+      : hasDur
+        ? "סטטוס: סשן מלא"
+        : "סטטוס: חלקי";
 
-    lines.push(`${i + 1}. ${when}`);
-    lines.push(`   משאית ${truck}${driver}`);
-    lines.push(`   מיקום: ${addr}`);
-    lines.push(`   ${dur} · ${note}`);
+    lines.push(`${i + 1}. זמן פתיחה: ${when}`);
+    if (close) lines.push(`   זמן סגירה: ${close}`);
+    lines.push(`   משאית: ${truck}`);
+    if (driver) lines.push(`   נהג: ${driver}`);
+    lines.push(`   כתובת פריקה: ${addr || "לא הופיעה במייל איתוראן"}`);
+    lines.push(`   משך פריקה: ${dur}`);
+    lines.push(`   שיוך: ${note}`);
+    lines.push(`   ${status}`);
     lines.push("");
   });
 
   if (opens.length > 40) {
-    lines.push(`… ועוד ${opens.length - 40} פתיחות שלא הוצגו.`);
+    lines.push(`ועוד ${opens.length - 40} פתיחות שלא הוצגו במסך זה.`);
     lines.push("");
   }
 
-  lines.push("הערה: כל הזמנים לפי שעון ישראל (Asia/Jerusalem). אין הצגת UTC גולמי.");
+  lines.push("הערה: הזמנים לפי שעון ישראל. כתובת מגיעה ממייל איתוראן או מתעודה משויכת.");
   return lines.join("\n").trim();
 }
 
