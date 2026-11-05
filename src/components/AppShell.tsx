@@ -40,7 +40,7 @@ const DESKTOP_NAV = [
   { to: "/orders", label: "הזמנות בסידור", icon: ClipboardList },
   { to: "/notes-explorer", label: "ארכיון תעודות", icon: Archive },
   { to: "/notes", label: "תעודות משלוח", icon: FileText },
-  { to: "/catalog", label: "קטלוג לוגיסטי", icon: BookOpen },
+  { to: "/catalog", label: "קטלוג לוגיסטי", icon: BookOpen },\n  { to: "/media-studio", label: "סטודיו תמונות", icon: ImagePlus },
   { to: "/canvas", label: "עריכת תעודה (קנבס)", icon: Edit3 },
   { to: "/customers", label: "תיקי לקוחות", icon: Users },
   { to: "/sites", label: "אתרי אספקה", icon: MapPin },
