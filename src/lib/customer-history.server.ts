@@ -45,7 +45,14 @@ export type HSite = {
 };
 export type AtlasSite = HSite & {
   city: string; customerNo: string; customerName: string; latitude: number | null; longitude: number | null;
-  visitHistory: Array<{ dateIso: string; truck: string; driver: string; notes: string[]; orders: string[]; durationMin: number | null }>;
+  /** כמה פעמים נפתח מנוף בכתובת (מתוך היסטוריית_ביקורים / PTO משך) */
+  ptoOpens: number;
+  /** סה\"כ דקות PTO מצטברות בכתובת */
+  ptoTotalMin: number;
+  visitHistory: Array<{
+    dateIso: string; truck: string; driver: string; notes: string[]; orders: string[];
+    durationMin: number | null; ptoMin: number | null;
+  }>;
 };
 export type HInquiry = { noteId: string; reason: string; reply: string; status: string; updatedIso: string; fileUrl: string };
 export type HCheck = { dateIso: string; noteId: string; approver: string; checkId: string; result: string };
@@ -64,7 +71,7 @@ export type CustomerHistory = {
 /* ------------------------------ קריאה ------------------------------ */
 
 type Row = Record<string, string>;
-const normHeader = (h: string) => h.replace(/[׳'’"״`]/g, "").replace(/\s+/g, " ").trim();
+const normHeader = (h: string) => h.replace(/[׳'’\"״`]/g, "").replace(/\s+/g, " ").trim();
 const g = (r: Row, name: string) => r[normHeader(name)] ?? "";
 const num = (v: string): number | null => {
   const n = parseFloat(v.replace(/[^\d.]/g, ""));
@@ -342,30 +349,49 @@ export async function loadSiteAtlas() {
     const history = (visitsBySite.get(key) || []).sort((a, b) => b.dateIso.localeCompare(a.dateIso));
     const latitude = num(g(row, "קו רוחב") || g(row, "latitude") || g(row, "lat"));
     const longitude = num(g(row, "קו אורך") || g(row, "longitude") || g(row, "lng") || g(row, "lon"));
+    const ptoHistory = history.filter((v) => v.ptoMin != null && v.ptoMin > 0);
+    const ptoTotalMin = ptoHistory.reduce((s, v) => s + (v.ptoMin || 0), 0);
     return {
-      siteKey, address, city, customerNo: g(row, "מס' לקוח") || customersBySite.get(key)?.no || "", customerName: g(row, "שם לקוח") || customersBySite.get(key)?.name || "",
+      siteKey, address, city,
+      customerNo: g(row, "מס' לקוח") || customersBySite.get(key)?.no || "",
+      customerName: g(row, "שם לקוח") || customersBySite.get(key)?.name || "",
       visits: num(g(row, "כמות ביקורים") || g(row, "ביקורים")) ?? history.length,
       lastIso: toIso(g(row, "תאריך ביקור אחרון") || g(row, "ביקור אחרון")),
       samples: num(g(row, "מדידות")) ?? history.filter((v) => v.siteMin != null).length,
       medianMin: num(g(row, "P50 משך באתר") || g(row, "באתר חציון (דק׳)")),
       p80Min: num(g(row, "P80 תכנון בטוח") || g(row, "באתר P80 (דק׳)")),
       maxMin: num(g(row, "מקסימום דקות") || g(row, "באתר מקס׳ (דק׳)")),
-      confidence: g(row, "רמת ביטחון") || g(row, "ביטחון"), latitude, longitude,
-      visitHistory: history.map((v) => ({ dateIso: v.dateIso, truck: v.truck, driver: v.driver, notes: v.noteIds, orders: v.orderIds, durationMin: v.siteMin ?? v.ituranMin })),
+      confidence: g(row, "רמת ביטחון") || g(row, "ביטחון"),
+      latitude, longitude,
+      ptoOpens: ptoHistory.length,
+      ptoTotalMin,
+      visitHistory: history.map((v) => ({
+        dateIso: v.dateIso, truck: v.truck, driver: v.driver, notes: v.noteIds, orders: v.orderIds,
+        durationMin: v.siteMin ?? v.ituranMin, ptoMin: v.ptoMin,
+      })),
     };
   }).filter((site) => site.address);
+
   const knownKeys = new Set(sites.map((site) => site.siteKey || `${site.city}|${site.address}`));
   for (const [key, history] of visitsBySite) {
     if (knownKeys.has(key) || !history[0]?.address) continue;
     const sample = history[0];
     const customer = customersBySite.get(key);
+    const ptoHistory = history.filter((v) => v.ptoMin != null && v.ptoMin > 0);
+    const ptoTotalMin = ptoHistory.reduce((s, v) => s + (v.ptoMin || 0), 0);
     sites.push({
-      siteKey: sample.siteKey, address: sample.address, city: sample.city, customerNo: customer?.no || "", customerName: customer?.name || "",
+      siteKey: sample.siteKey, address: sample.address, city: sample.city,
+      customerNo: customer?.no || "", customerName: customer?.name || "",
       visits: history.length, lastIso: history.map((v) => v.dateIso).sort().at(-1) || "",
       samples: history.filter((v) => v.siteMin != null).length, medianMin: null, p80Min: null,
       maxMin: history.reduce<number | null>((max, v) => v.siteMin == null ? max : Math.max(max ?? 0, v.siteMin), null),
       confidence: "", latitude: null, longitude: null,
-      visitHistory: [...history].sort((a, b) => b.dateIso.localeCompare(a.dateIso)).map((v) => ({ dateIso: v.dateIso, truck: v.truck, driver: v.driver, notes: v.noteIds, orders: v.orderIds, durationMin: v.siteMin ?? v.ituranMin })),
+      ptoOpens: ptoHistory.length,
+      ptoTotalMin,
+      visitHistory: [...history].sort((a, b) => b.dateIso.localeCompare(a.dateIso)).map((v) => ({
+        dateIso: v.dateIso, truck: v.truck, driver: v.driver, notes: v.noteIds, orders: v.orderIds,
+        durationMin: v.siteMin ?? v.ituranMin, ptoMin: v.ptoMin,
+      })),
     });
   }
 
