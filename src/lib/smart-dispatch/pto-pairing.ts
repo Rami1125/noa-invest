@@ -174,11 +174,29 @@ export function analyzePto(rawSessions: PtoSession[], notes: DeliveryNote[]): Pt
     );
     let best: DeliveryNote | undefined;
     let bestScore = 0;
+    const ptoAddr = String(s.address || "").trim();
+
     for (const n of candidates) {
-      const m = scoreAddressMatch(n.siteAddress, s.address);
-      if (m.isMatch && m.score > bestScore) {
-        best = n;
-        bestScore = m.score;
+      if (ptoAddr) {
+        const m = scoreAddressMatch(n.siteAddress, ptoAddr);
+        if (m.isMatch && m.score > bestScore) {
+          best = n;
+          bestScore = m.score;
+        }
+      }
+    }
+
+    // אם אין כתובת ב-PTO או לא נמצאה התאמה — נסה לפי תאריך+משאית בלבד
+    if (!best && candidates.length === 1) {
+      best = candidates[0];
+    } else if (!best && candidates.length > 1 && !ptoAddr) {
+      best = candidates[0];
+    }
+
+    if (best) {
+      s.matchedNoteId = best.id;
+      if (!ptoAddr && best.siteAddress) {
+        s.address = String(best.siteAddress);
       }
     }
 
@@ -194,7 +212,6 @@ export function analyzePto(rawSessions: PtoSession[], notes: DeliveryNote[]): Pt
       continue;
     }
 
-    s.matchedNoteId = best.id;
     const hw = summarizeVisitHandwrittenTimes([best.craneTime]).unloadingMin;
     if (hw > 0 && s.durationMin !== null && Math.abs(hw - s.durationMin) > GAP_MIN) {
       issues.push({
@@ -225,35 +242,26 @@ export function buildTruckSummaries(sessions: PtoSession[]): DriverTruckSummary[
 
   const out: DriverTruckSummary[] = [];
   for (const [truck, list] of byTruck) {
-    const latest = list[0]!; // ממוינים יורד
-    const day = list
-      .filter((s) => s.date === latest.date)
-      .sort((a, b) => ts(a.openIso) - ts(b.openIso));
-    const totalPto = day.reduce((sum, s) => sum + (s.durationMin ?? 0), 0);
-    const paired = day.filter((s) => !s.orphan).length;
-
+    const sorted = [...list].sort((a, b) => ts(b.openIso) - ts(a.openIso));
+    const latestDate = sorted[0]?.date ?? "";
+    const day = sorted.filter((s) => s.date === latestDate);
+    const totalMin = day.reduce((acc, s) => acc + (s.durationMin ?? 0), 0);
+    const driver = day.find((s) => s.driver)?.driver || sorted.find((s) => s.driver)?.driver || "";
     out.push({
-      driver: day.find((s) => s.driver)?.driver || "לא ידוע",
       truck,
-      truckType: truck.startsWith("615") ? "משאית מנוף" : "משאית",
-      date: latest.date,
-      kmTotal: "—",
-      driveTime: "—",
-      workTime: "—",
-      ptoTime: hhmm(totalPto),
-      idleTime: "—",
-      verifiedStatus: `${paired}/${day.length} אירועי PTO מזווגים`,
-      stops: day.map((s) => ({
-        id: s.id,
+      driver,
+      date: latestDate,
+      sessions: day.length,
+      totalUnloadMin: totalMin,
+      totalUnloadLabel: hhmm(totalMin),
+      sample: day.slice(0, 3).map((s) => ({
+        open: israelTime(s.openIso),
+        close: s.closeIso ? israelTime(s.closeIso) : "—",
+        min: s.durationMin,
+        address: s.address,
         label: s.matchedNoteId ? `ת.מ. ${s.matchedNoteId}` : "ללא תעודה תואמת",
-        address: s.address || "כתובת לא ידועה",
-        arriveTime: israelTime(s.openIso),
-        departTime: s.closeIso ? israelTime(s.closeIso) : undefined,
-        ptoOpen: israelTime(s.openIso),
-        ptoClose: s.closeIso ? israelTime(s.closeIso) : undefined,
-        ptoMin: s.durationMin ?? undefined,
       })),
     });
   }
-  return out;
+  return out.sort((a, b) => a.truck.localeCompare(b.truck, "he"));
 }
