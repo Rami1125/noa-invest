@@ -17,6 +17,7 @@ import { Route as HarelRouteImport } from './routes/harel'
 import { Route as InquiryRouteImport } from './routes/inquiry'
 import { Route as IturanRouteImport } from './routes/ituran'
 import { Route as NotesRouteImport } from './routes/notes'
+import { Route as NotebookRouteImport } from './routes/notebook'
 import { Route as NoaConsoleRouteImport } from './routes/noa-console'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as TachographRouteImport } from './routes/tachograph'
@@ -61,6 +62,12 @@ const IturanRoute = IturanRouteImport.update({
   path: '/ituran',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NotebookRoute = NotebookRouteImport.update({
+  id: '/notebook',
+  path: '/notebook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
 const NotesRoute = NotesRouteImport.update({
   id: '/notes',
   path: '/notes',
@@ -289,6 +296,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NoaConsoleRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/notebook': {
+      id: '/notebook'
+      path: '/notebook'
+      fullPath: '/notebook'
+      preLoaderRoute: typeof NotebookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/notes': {
       id: '/notes'
       path: '/notes'
@@ -390,6 +404,7 @@ const rootRouteChildren: RootRouteChildren = {
   InquiryRoute: InquiryRouteWithChildren,
   IturanRoute: IturanRoute,
   NotesRoute: NotesRouteWithChildren,
+  NotebookRoute: NotebookRoute,
   OrdersRoute: OrdersRoute,
   TachographRoute: TachographRoute,
   NoaConsoleRoute: NoaConsoleRoute,
