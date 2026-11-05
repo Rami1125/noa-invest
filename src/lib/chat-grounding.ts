@@ -90,6 +90,69 @@ export function evidenceFromMeta(meta: BackendMeta | null): EvidenceLevel {
   return "unavailable";
 }
 
+/** פורמט זמן ישראל מ-ISO */
+export function formatIsraelDateTime(iso?: string | null): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    return d.toLocaleString("he-IL", {
+      timeZone: "Asia/Jerusalem",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return String(iso);
+  }
+}
+
+export type PtoSessionFact = {
+  truck?: string;
+  driver?: string;
+  address?: string;
+  openIso?: string;
+  closeIso?: string;
+  durationMin?: number | null;
+  matchedNoteId?: string;
+  orphan?: string;
+  date?: string;
+};
+
+/** סיכום PTO מאומת לתשובת נועה (בלי UTC גולמי) */
+export function formatPtoOpeningsSummary(sessions: PtoSessionFact[]): string {
+  const opens = sessions.filter((s) => !s.orphan || s.orphan === "missing_close");
+  const lines: string[] = [];
+  lines.push("סיכום פתיחות מנוף (טאב איתוראן_PTO)");
+  lines.push("");
+  lines.push(`מספר פתיחות במדגם: ${opens.length}`);
+  lines.push(`מתוכן עם תעודה משויכת: ${opens.filter((s) => s.matchedNoteId).length}`);
+  lines.push(`יתומים / חלקיים: ${sessions.filter((s) => s.orphan).length}`);
+  lines.push("");
+  lines.push("פירוט (שעון ישראל):");
+  lines.push("תאריך ושעה | משאית | כתובת | משך (דק') | תעודה");
+  for (const s of opens.slice(0, 30)) {
+    const when = formatIsraelDateTime(s.openIso) || s.date || "—";
+    const truck = s.truck || "—";
+    const addr = (s.address || "כתובת לא ידועה").replace(/\s+/g, " ").trim();
+    const dur =
+      s.durationMin != null && Number.isFinite(Number(s.durationMin))
+        ? String(s.durationMin)
+        : "—";
+    const note = s.matchedNoteId || "לא שויך";
+    lines.push(`${when} | ${truck} | ${addr} | ${dur} | ${note}`);
+  }
+  if (opens.length > 30) {
+    lines.push(`… ועוד ${opens.length - 30} פתיחות`);
+  }
+  lines.push("");
+  lines.push("הערה: הזמנים מוצגים לפי שעון ישראל, לא UTC.");
+  return lines.join("\n");
+}
+
 export function buildNoaContext(input: {
   meta: BackendMeta | null;
   fetchedAt: string | null;
@@ -97,8 +160,9 @@ export function buildNoaContext(input: {
   visits: Record<string, unknown>[];
   discrepancies: unknown[];
   question: string;
+  ptoSessions?: PtoSessionFact[];
 }): string {
-  const { meta, fetchedAt, notes, visits, discrepancies, question } = input;
+  const { meta, fetchedAt, notes, visits, discrepancies, question, ptoSessions = [] } = input;
   const evidence = evidenceFromMeta(meta);
 
   const noteSlice = notes.slice(0, 25).map((n) => ({
@@ -110,14 +174,16 @@ export function buildNoaContext(input: {
     date: n.date ?? n.docDate,
   }));
 
-  const visitSlice = visits.slice(0, 20).map((v) => ({
+  const visitSlice = visits.slice(0, 40).map((v) => ({
     truck: v.truck,
     driver: v.driver,
-    address: v.fullAddress ?? v.streetAndNum,
+    address: v.fullAddress ?? v.streetAndNum ?? v.address,
     noteIds: v.noteIds,
-    ituranArrive: v.ituranArriveTime,
-    ituranDepart: v.ituranDepartTime,
-    ituranDurationMin: v.ituranDurationMin,
+    ituranArrive: v.ituranArriveTime ?? v.ituranArrive,
+    ituranDepart: v.ituranDepartTime ?? v.ituranDepart,
+    ituranArriveLocal: formatIsraelDateTime(String(v.ituranArriveTime ?? v.ituranArrive ?? "")),
+    ituranDepartLocal: formatIsraelDateTime(String(v.ituranDepartTime ?? v.ituranDepart ?? "")),
+    ituranDurationMin: v.ituranDurationMin ?? v.durationMin,
     ptoOpenTime: v.ptoOpenTime,
     ptoCloseTime: v.ptoCloseTime,
     ptoDurationMin: v.ptoDurationMin,
@@ -129,6 +195,18 @@ export function buildNoaContext(input: {
     customers: v.customers,
   }));
 
+  const ptoSlice = (ptoSessions || []).slice(0, 40).map((s) => ({
+    truck: s.truck || "",
+    driver: s.driver || "",
+    address: s.address || "כתובת לא ידועה",
+    openLocal: formatIsraelDateTime(s.openIso),
+    closeLocal: formatIsraelDateTime(s.closeIso),
+    durationMin: s.durationMin ?? null,
+    matchedNoteId: s.matchedNoteId || null,
+    orphan: s.orphan || null,
+    date: s.date || "",
+  }));
+
   return JSON.stringify(
     {
       evidenceLevel: evidence,
@@ -138,12 +216,17 @@ export function buildNoaContext(input: {
       meta: meta ?? { notesSource: "unavailable", ituranSource: "none" },
       notesSample: noteSlice,
       visitsSample: visitSlice,
+      ptoSource: "איתוראן_PTO",
+      ptoOpeningsCount: ptoSlice.filter((s) => !s.orphan || s.orphan === "missing_close").length,
+      ptoSessionsSample: ptoSlice,
       discrepanciesCount: Array.isArray(discrepancies) ? discrepancies.length : 0,
       discrepanciesSample: Array.isArray(discrepancies) ? discrepancies.slice(0, 10) : [],
       constraints: {
         noLiveGps: true,
         demoReportsForbidden: true,
         onlyUseFactsInThisJson: true,
+        timesAreIsraelLocal: true,
+        neverShowRawUtcToUser: true,
       },
     },
     null,
