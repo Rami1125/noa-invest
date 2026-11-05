@@ -122,35 +122,53 @@ export type PtoSessionFact = {
   date?: string;
 };
 
-/** סיכום PTO מאומת לתשובת נועה (בלי UTC גולמי) */
+/** סיכום PTO מאומת לתשובת נועה (בלי UTC גולמי, עם כתובת ומספור ברור) */
 export function formatPtoOpeningsSummary(sessions: PtoSessionFact[]): string {
   const opens = sessions.filter((s) => !s.orphan || s.orphan === "missing_close");
+  const matched = opens.filter((s) => s.matchedNoteId);
+  const orphans = sessions.filter((s) => s.orphan);
   const lines: string[] = [];
-  lines.push("סיכום פתיחות מנוף (טאב איתוראן_PTO)");
+
+  lines.push("פתיחות מנוף — טאב איתוראן_PTO");
   lines.push("");
-  lines.push(`מספר פתיחות במדגם: ${opens.length}`);
-  lines.push(`מתוכן עם תעודה משויכת: ${opens.filter((s) => s.matchedNoteId).length}`);
-  lines.push(`יתומים / חלקיים: ${sessions.filter((s) => s.orphan).length}`);
+  lines.push(`סה\"כ פתיחות במדגם: ${opens.length}`);
+  lines.push(`מתוכן שויכו לתעודת משלוח: ${matched.length}`);
+  lines.push(`יתומים / חלקיים (חסר פתיחה או סגירה): ${orphans.length}`);
   lines.push("");
-  lines.push("פירוט (שעון ישראל):");
-  lines.push("תאריך ושעה | משאית | כתובת | משך (דק') | תעודה");
-  for (const s of opens.slice(0, 30)) {
+
+  if (opens.length === 0) {
+    lines.push("לא נמצאו אירועי פתיחת מנוף בטווח שנטען מהשרת.");
+    return lines.join("\n");
+  }
+
+  lines.push("פירוט לפי שעון ישראל (מהחדש לישן):");
+  lines.push("");
+
+  opens.slice(0, 40).forEach((s, i) => {
     const when = formatIsraelDateTime(s.openIso) || s.date || "—";
     const truck = s.truck || "—";
+    const driver = s.driver ? ` · נהג: ${s.driver}` : "";
     const addr = (s.address || "כתובת לא ידועה").replace(/\s+/g, " ").trim();
     const dur =
       s.durationMin != null && Number.isFinite(Number(s.durationMin))
-        ? String(s.durationMin)
-        : "—";
-    const note = s.matchedNoteId || "לא שויך";
-    lines.push(`${when} | ${truck} | ${addr} | ${dur} | ${note}`);
+        ? `${s.durationMin} דק׳`
+        : "משך לא ידוע";
+    const note = s.matchedNoteId ? `תעודה ${s.matchedNoteId}` : "לא שויך לתעודה";
+
+    lines.push(`${i + 1}. ${when}`);
+    lines.push(`   משאית ${truck}${driver}`);
+    lines.push(`   מיקום: ${addr}`);
+    lines.push(`   ${dur} · ${note}`);
+    lines.push("");
+  });
+
+  if (opens.length > 40) {
+    lines.push(`… ועוד ${opens.length - 40} פתיחות שלא הוצגו.`);
+    lines.push("");
   }
-  if (opens.length > 30) {
-    lines.push(`… ועוד ${opens.length - 30} פתיחות`);
-  }
-  lines.push("");
-  lines.push("הערה: הזמנים מוצגים לפי שעון ישראל, לא UTC.");
-  return lines.join("\n");
+
+  lines.push("הערה: כל הזמנים לפי שעון ישראל (Asia/Jerusalem). אין הצגת UTC גולמי.");
+  return lines.join("\n").trim();
 }
 
 export function buildNoaContext(input: {
