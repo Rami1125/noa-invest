@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
   <meta name="theme-color" content="#1a5c4a" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>בירור תעודת משלוח — נועה · ח. סבן</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -153,39 +154,34 @@
   <main class="shell" id="app"></main>
   <script>
 (function () {
-  const STEP_LABELS = { auth: 'אימות קישור', file: 'בדיקת קובץ', drive: 'שמירה ב-Drive', sheet: 'רישום בגיליון בירור', calendar: 'יומן ראמי', notifyRami: 'התראה לראמי', confirmHarel: 'אישור להראל', duplicate: 'זיהוי כפילות' };
-  const params = new URLSearchParams(location.search);
-  const pathParts = location.pathname.split('/').filter(Boolean);
-  let noteNumber = pathParts[pathParts.length - 1];
+  var STEP_LABELS = { auth: 'אימות קישור', file: 'בדיקת קובץ', drive: 'שמירה ב-Drive', sheet: 'רישום בגיליון בירור', calendar: 'יומן ראמי', notifyRami: 'התראה לראמי', confirmHarel: 'אישור להראל', duplicate: 'זיהוי כפילות' };
+  var params = new URLSearchParams(location.search);
+  var pathParts = location.pathname.split('/').filter(Boolean);
+  var noteNumber = pathParts[pathParts.length - 1];
   if (noteNumber === 'notes.html' || noteNumber === 'notes') noteNumber = params.get('note') || params.get('id') || '';
-  const token = params.get('t') || params.get('token') || '';
-  const app = document.getElementById('app');
+  var token = params.get('t') || params.get('token') || '';
+  var app = document.getElementById('app');
   function validNote(n) { return /^[0-9A-Za-z\-]{1,20}$/.test(n || ''); }
   function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, '&')
-      .replace(/</g, '<')
-      .replace(/>/g, '>')
-      .replace(/"/g, '"')
-      .replace(/'/g, '&#39;');
+    return String(s).replace(/&/g, '&'+'amp;').replace(/</g, '&'+'lt;').replace(/>/g, '&'+'gt;').replace(/"/g, '&'+'quot;').replace(/'/g, '&#39;');
   }
   if (!validNote(noteNumber) || !token || token.length > 400) {
     app.innerHTML = '<div class="card gate"><div class="icon">!</div><h1>הקישור לא תקף</h1><p>הקישור פג תוקף, חסר או אינו מלא. בקש מראמי / נועה קישור חדש לבירור תעודה.</p></div><footer class="mini">ח. סבן חומרי בניין (1994) בע״מ · <a href="https://noa-invest.vercel.app">נועה</a></footer>';
     return;
   }
-  const ARCHIVE_KEY = 'noa_harel_inquiry_archive_v1';
+  var ARCHIVE_KEY = 'noa_harel_inquiry_archive_v1';
   function loadArchive() { try { return JSON.parse(localStorage.getItem(ARCHIVE_KEY) || '[]'); } catch (e) { return []; } }
-  function saveArchiveItem(item) { const list = loadArchive().filter(function(x){ return x.note !== item.note; }); list.unshift(item); localStorage.setItem(ARCHIVE_KEY, JSON.stringify(list.slice(0, 12))); }
-  app.innerHTML = '\n    <div class="layout">\n      <section class="card" id="uploadCard">\n        <div class="card-body">\n          <div class="eyebrow">העלאה מאובטחת להראל</div>\n          <h1>בירור תעודת משלוח</h1>\n          <p class="sub">העלה PDF או תמונה של התעודה. הקובץ יישמר בתיקיית הבירור, יירשם בגיליון ראמי, וייפתח משימת מעקב.</p>\n          <div class="note-chip"><span>מס׳ תעודה</span> ' + escapeHtml(noteNumber) + '</div>\n          <div class="dropzone" id="dropzone">\n            <input type="file" id="fileInput" accept="application/pdf,image/jpeg,image/png,image/webp" />\n            <div class="dz-icon">↑</div>\n            <div class="dz-title">גרור קובץ לכאן או לחץ לבחירה</div>\n            <div class="dz-hint">PDF · JPG · PNG · WEBP · עד 3MB</div>\n            <div class="file-preview" id="filePreview">\n              <img id="thumb" alt="" hidden />\n              <div class="meta"><strong id="fileName">—</strong><span id="fileSize">—</span></div>\n              <button type="button" class="file-clear" id="clearFile">הסר</button>\n            </div>\n          </div>\n          <div class="field"><label for="reason">סיבה / פירוט הבירור</label>\n            <textarea id="reason" placeholder="לדוגמה: חסר חתימת לקוח, כמות לא תואמת…" maxlength="1000"></textarea></div>\n          <div class="field"><label for="freq">תדירות תזכורת לראמי</label>\n            <select id="freq"><option value="2" selected>יומית (08:00)</option><option value="1">שעתית</option><option value="3">שבועית (ראשון 08:00)</option></select></div>\n          <div class="actions"><button type="button" class="btn btn-primary" id="submitBtn" disabled><span id="btnLabel">העלה ופתח משימת בירור</span></button></div>\n          <div class="steps" id="steps"></div>\n          <div class="result" id="result"></div>\n        </div>\n      </section>\n      <aside class="card archive-card"><div class="card-body">\n        <div class="archive-head"><h2>ארכיון בירור ראמי</h2><span class="archive-badge" id="archiveCount">0</span></div>\n        <div class="archive-list" id="archiveList"></div>\n        <p class="hint-foot">הפאנל מציג העלאות מהמכשיר הזה. לאחר העלאה נשלחת התראה לוואטסאפ של ראמי, נשמר עותק ב-Drive ונרשמת שורה בטאב «בירור_ראמי».</p>\n      </div></aside>\n    </div>\n    <footer class="mini">ח. סבן חומרי בניין (1994) בע״מ · מערכת נועה · קישור תקף 72 שעות</footer>';
-  const dropzone = document.getElementById('dropzone');
-  const fileInput = document.getElementById('fileInput');
-  const submitBtn = document.getElementById('submitBtn');
-  const btnLabel = document.getElementById('btnLabel');
-  const stepsEl = document.getElementById('steps');
-  const resultEl = document.getElementById('result');
-  const reasonEl = document.getElementById('reason');
-  const freqEl = document.getElementById('freq');
-  let selectedFile = null;
+  function saveArchiveItem(item) { var list = loadArchive().filter(function(x){ return x.note !== item.note; }); list.unshift(item); localStorage.setItem(ARCHIVE_KEY, JSON.stringify(list.slice(0, 12))); }
+  app.innerHTML = '<div class="layout"><section class="card" id="uploadCard"><div class="card-body"><div class="eyebrow">העלאה מאובטחת להראל</div><h1>בירור תעודת משלוח</h1><p class="sub">העלה PDF או תמונה. הקובץ נשמר ב-Drive, נרשם בגיליון ראמי, ונפתחת משימה.</p><div class="note-chip"><span>מס׳ תעודה</span> ' + escapeHtml(noteNumber) + '</div><div class="dropzone" id="dropzone"><input type="file" id="fileInput" accept="application/pdf,image/jpeg,image/png,image/webp" /><div class="dz-icon">↑</div><div class="dz-title">גרור קובץ לכאן או לחץ לבחירה</div><div class="dz-hint">PDF · JPG · PNG · WEBP · עד 3MB</div><div class="file-preview" id="filePreview"><img id="thumb" alt="" hidden /><div class="meta"><strong id="fileName">—</strong><span id="fileSize">—</span></div><button type="button" class="file-clear" id="clearFile">הסר</button></div></div><div class="field"><label for="reason">סיבה / פירוט הבירור</label><textarea id="reason" placeholder="לדוגמה: חסר חתימת לקוח…" maxlength="1000"></textarea></div><div class="field"><label for="freq">תדירות תזכורת לראמי</label><select id="freq"><option value="2" selected>יומית (08:00)</option><option value="1">שעתית</option><option value="3">שבועית (ראשון 08:00)</option></select></div><div class="actions"><button type="button" class="btn btn-primary" id="submitBtn" disabled><span id="btnLabel">העלה ופתח משימת בירור</span></button></div><div class="steps" id="steps"></div><div class="result" id="result"></div></div></section><aside class="card archive-card"><div class="card-body"><div class="archive-head"><h2>ארכיון בירור ראמי</h2><span class="archive-badge" id="archiveCount">0</span></div><div class="archive-list" id="archiveList"></div><p class="hint-foot">לאחר העלאה: התראה לראמי, עותק ב-Drive, שורה בטאב בירור_ראמי.</p></div></aside></div><footer class="mini">ח. סבן · נועה · קישור תקף 72 שעות</footer>';
+  var dropzone = document.getElementById('dropzone');
+  var fileInput = document.getElementById('fileInput');
+  var submitBtn = document.getElementById('submitBtn');
+  var btnLabel = document.getElementById('btnLabel');
+  var stepsEl = document.getElementById('steps');
+  var resultEl = document.getElementById('result');
+  var reasonEl = document.getElementById('reason');
+  var freqEl = document.getElementById('freq');
+  var selectedFile = null;
   function formatBytes(n) { if (n < 1024) return n + ' B'; if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'; return (n / (1024 * 1024)).toFixed(2) + ' MB'; }
   function setFile(file) {
     selectedFile = null; dropzone.classList.remove('has-file'); document.getElementById('thumb').hidden = true; submitBtn.disabled = true;
@@ -208,7 +204,7 @@
   function renderArchive() {
     var list = loadArchive(); var el = document.getElementById('archiveList');
     document.getElementById('archiveCount').textContent = String(list.length);
-    if (!list.length) { el.innerHTML = '<div class="archive-empty">עדיין אין העלאות מהמכשיר הזה.<br/>לאחר העלאה מוצלחת יופיע כאן סיכום.</div>'; return; }
+    if (!list.length) { el.innerHTML = '<div class="archive-empty">עדיין אין העלאות מהמכשיר הזה.</div>'; return; }
     el.innerHTML = list.map(function(item){
       return '<div class="archive-item ' + (item.note === noteNumber ? 'active' : '') + '"><div class="ai-dot ' + (item.ok ? 'ok' : (item.partial ? 'warn' : '')) + '"></div><div class="ai-body"><strong>תעודה ' + escapeHtml(item.note) + '</strong><span>' + escapeHtml(item.when) + ' · ' + (item.ok ? 'נפתחה משימה' : (item.partial ? 'חלקי' : 'נכשל')) + '</span></div></div>';
     }).join('');
@@ -232,29 +228,41 @@
   }
   function showResult(data) {
     resultEl.classList.remove('success', 'partial', 'error', 'visible');
-    var ok = !!data.ok, partial = !!data.partial;
-    resultEl.classList.add('visible', ok ? 'success' : (partial ? 'partial' : 'error'));
-    var title = ok ? '✔️ הועלה בהצלחה' : (partial ? '⚠️ הועלה חלקית' : '❌ ההעלאה לא הושלמה');
-    var finalLink = location.origin + '/notes/' + encodeURIComponent(noteNumber);
-    resultEl.innerHTML = '<h3>' + title + '</h3><p>' + escapeHtml(data.message || '') + '</p><div class="link-box"><a href="' + finalLink + '" target="_blank" rel="noopener">פתח דף הבירור</a><button type="button" id="copyLink">העתק לינק</button></div>';
+    var ok = !!data.ok, partial = !!data.partial, dup = !!data.duplicate;
+    resultEl.classList.add('visible', (ok || dup) ? 'success' : (partial ? 'partial' : 'error'));
+    var title = dup ? '✔️ התעודה כבר במערכת' : (ok ? '✔️ הועלה בהצלחה' : (partial ? '⚠️ הועלה חלקית' : '❌ ההעלאה לא הושלמה'));
+    var fileUrl = data.fileUrl || data.previewUrl || data.url || '';
+    var stayUrl = location.origin + '/notes/' + encodeURIComponent(noteNumber) + '?t=' + encodeURIComponent(token);
+    var buttons = '';
+    if (fileUrl) buttons += '<a href="' + escapeHtml(fileUrl) + '" target="_blank" rel="noopener">פתח קובץ ב-Drive</a>';
+    buttons += '<a href="' + escapeHtml(stayUrl) + '">חזרה לדף העלאה</a>';
+    buttons += '<button type="button" id="copyLink">העתק לינק העלאה</button>';
+    if (fileUrl) buttons += '<button type="button" id="copyFile">העתק קישור קובץ</button>';
+    resultEl.innerHTML = '<h3>' + title + '</h3><p>' + escapeHtml(data.message || '') + '</p><div class="link-box">' + buttons + '</div>';
     document.getElementById('copyLink').onclick = function(){
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(finalLink).then(function(){ document.getElementById('copyLink').textContent = 'הועתק ✓'; });
-      } else { prompt('העתק את הקישור:', finalLink); }
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(stayUrl).then(function(){ document.getElementById('copyLink').textContent = 'הועתק ✓'; });
+      else prompt('העתק:', stayUrl);
     };
+    var copyFileBtn = document.getElementById('copyFile');
+    if (copyFileBtn && fileUrl) {
+      copyFileBtn.onclick = function(){
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(fileUrl).then(function(){ copyFileBtn.textContent = 'הועתק ✓'; });
+        else prompt('העתק:', fileUrl);
+      };
+    }
   }
   submitBtn.addEventListener('click', function(){
     if (!selectedFile) return;
     submitBtn.disabled = true; btnLabel.innerHTML = '<span class="spinner"></span>';
     resultEl.classList.remove('visible'); stepsEl.classList.add('visible');
-    stepsEl.innerHTML = '<div class="step pending"><div class="step-dot">·</div><div class="step-label">מכין קובץ ושולח לשרת נועה…</div></div>';
+    stepsEl.innerHTML = '<div class="step pending"><div class="step-dot">·</div><div class="step-label">מכין קובץ ושולח…</div></div>';
     fileToBase64(selectedFile).then(function(fileBase64){
       return fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ noteNumber: noteNumber, token: token, freq: freqEl.value || '2', reason: (reasonEl.value || '').slice(0, 1000), mimeType: selectedFile.type, fileBase64: fileBase64 }) });
     }).then(function(res){ return res.json().catch(function(){ return { ok: false, message: 'תשובה לא תקינה מהשרת' }; }); })
     .then(function(data){
       renderSteps(data.steps || []); showResult(data);
-      saveArchiveItem({ note: noteNumber, when: new Date().toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' }), ok: !!data.ok, partial: !!data.partial, message: data.message || '' });
+      saveArchiveItem({ note: noteNumber, when: new Date().toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' }), ok: !!data.ok || !!data.duplicate, partial: !!data.partial, message: data.message || '' });
       renderArchive();
     }).catch(function(){
       renderSteps([{ key: 'auth', ok: false, detail: 'שגיאת רשת' }]);
