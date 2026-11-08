@@ -120,11 +120,12 @@ export const Route = createFileRoute("/api/upload")({
           return Response.json({
             ok: !!data.ok,
             partial: !!data.partial,
+            duplicate: !!data.duplicate,
             steps: data.steps || [],
             message: data.message || data.error || "",
             noteNumber: data.noteNumber || note,
             previewUrl: data.previewUrl,
-            fileUrl: data.fileUrl || data.url,
+            fileUrl: data.fileUrl || data.url || "",
           });
         } catch (err) {
           console.error("upload proxy failed", err instanceof Error ? err.message : err);
