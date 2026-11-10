@@ -74,25 +74,284 @@
     </aside>
   </div>
 <script>
-const PERSONAS=[{id:"new",label:"לקוח חדש",phone:"972501234567",name:"אורח",block:false},{id:"existing",label:"לקוח קיים",phone:"972542223344",name:"ישראל כהן",block:false},{id:"rami",label:"ראמי",phone:"972508860896",name:"ראמי מסארווה",block:true},{id:"harel",label:"הראל",phone:"972505227724",name:"הראל אידלסון",block:true},{id:"vered",label:"ורד",phone:"972508861180",name:"ורד אידלסון",block:true},{id:"family",label:"ג׳ולי",phone:"972508898001",name:"ג׳ולי מסארווה",block:true},{id:"friend",label:"מורסי",phone:"972502416361",name:"מורסי מסארווה",block:true},{id:"chameleon",label:"קו הזיקית",phone:"972508861080",name:"סימולטור",block:false}];
-const CATALOG={"חול":{sku:"10001",unit:"בלה",deposit:"60002"},"מלט":{sku:"20010",unit:"שק"},"מלט אפור":{sku:"20010",unit:"שק"},"משטח":{sku:"60060",unit:"יח׳",deposit:"60060"},"בלה":{sku:"60002",unit:"יח׳",deposit:"60002"},"חמרה":{sku:"10005",unit:"בלה",deposit:"60002"}};
-const SCENARIOS=[{label:"פתיחה",text:"שלום"},{label:"הזמנה",text:"2 בלות חול ו-20 שק מלט אפור למוצקין 22 רעננה"},{label:"סטטוס",text:"מה הסטטוס של ההזמנה שלי?"},{label:"מחיר",text:"כמה עולה בלה חול?"},{label:"פגישה",text:"אני רוצה לתאם פגישה בסניף"},{label:"ראמי",text:"תעבירי לראמי בבקשה"},{label:"אישור",text:"מאשר"}];
-const WELCOME="https://raw.githubusercontent.com/Saban-94/noa-invest/main/public/images/welcom.jpeg";
-const SUCCESS="https://raw.githubusercontent.com/Saban-94/noa-invest/main/public/images/Designer.png";
-let persona=PERSONAS[0],pending=null,tools=[];
-const msgsEl=document.getElementById("msgs"),toolsEl=document.getElementById("tools"),subEl=document.getElementById("sub");
-function now(){return new Date().toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"});}
-function logTool(name,args,result,ok=true){tools.unshift({name,args,result,ok});toolsEl.innerHTML=tools.slice(0,30).map(t=>`<div class="tool ${t.ok?"":"fail"}"><b>${t.name}</b><pre>${JSON.stringify(t.args)}</pre><pre>${t.result}</pre></div>`).join("");}
-function addMsg(role,text,opts={}){const div=document.createElement("div");if(role==="system"){div.className="sys";div.textContent=text;msgsEl.appendChild(div);msgsEl.scrollTop=msgsEl.scrollHeight;return;}div.className="bubble "+(role==="noa"?"noa":"cust");let html="";if(role==="noa")html+=`<div style="font-size:10px;color:#7ee2c5;font-weight:800;margin-bottom:4px">נועה</div>`;if(opts.media)html+=`<img class="media" src="${opts.media}" alt="" />`;html+=text.replace(/</g,"<");if(opts.buttons){html+=`<div class="btns">`+opts.buttons.map(b=>`<button type="button" data-b="${b.replace(/"/g,""")}">${b}</button>`).join("")+`</div>`;}html+=`<div class="meta">${now()}</div>`;div.innerHTML=html;div.querySelectorAll("[data-b]").forEach(btn=>{btn.onclick=()=>{const v=btn.getAttribute("data-b");const map={"✅ מאשר":"מאשר","✏️ לתקן":"רגע, לתקן"};send(map[v]||v);};});msgsEl.appendChild(div);msgsEl.scrollTop=msgsEl.scrollHeight;}
-function respond(text){logTool("find_customer",{phone:persona.phone},JSON.stringify({found:persona.id!=="new",name:persona.name,blockCommerceMenu:persona.block}),true);if(persona.id==="rami")return{text:"ראמי 🤝 מוכן. מה הסידור / הפקודה?"};if(persona.id==="harel")return{text:"הראל 👑\n\nתפריט מנכ״ל:\n• 🔍 בירור תעודה 72h\n• 📊 דוח פערים",buttons:["🔍 בירור תעודה","📊 דוח פערים"]};if(persona.id==="vered")return{text:"ורד — מסוף בקרה.\nביקורת תעודות ופקדונות 1:1.\nאין תפריטי מכירה.",buttons:["📋 ביקורת תעודות"]};if(persona.id==="family")return{text:"היי ג׳ולי 💕 איך ניל ואדל?\nכספים → handoff שקט לראמי."};if(persona.id==="friend")return{text:"אהלן אבו ודיע 🤝 מה קורה?\nבלי תפריטי מכירה."};if(/הזמנת חומרים|🏗️|^1$/.test(text))return{text:"מצוין 🏗️ איזה חומרים או ציוד תרצה להזמין היום?"};if(/פנייה לראמי|👨‍💼|^2$|תעבירי/.test(text)){logTool("handoff_to_human",{phone:persona.phone,topic:text},JSON.stringify({transferred:true}),true);if(/תעבירי|handoff/i.test(text)||text.length>15)return{text:"העברתי את פרטי הפנייה לטיפולו הישיר של ראמי 🤝"};return{text:"בשמחה, במה נוכל לעזור ומה תרצה למסור לראמי? 🤝"};}if(/תיאום פגישה|🗓️|פגישה|^3$/.test(text))return{text:"אשמח לתאם פגישה בסניף התלמיד 6.\nמה הנושא והתאריך המועדף?"};if(/סטטוס|📦/.test(text)){logTool("get_orders",{phone:persona.phone},JSON.stringify({orders:persona.id==="existing"?[{id:"ORD-1042",status:"ממתין לשיבוץ"}]:[]}),true);return persona.id==="existing"?{text:"מצאתי הזמנה פתוחה:\n• ORD-1042 — 2 בלה חול\nסטטוס: ממתין לשיבוץ ראמי",buttons:["👨‍💼 פנייה לראמי"]}:{text:"לא מצאתי הזמנות פתוחות.\nרוצה לפתוח הזמנה?",buttons:["🏗️ הזמנת חומרים"]};}if(/כמה|מחיר|הנחה|עולה/.test(text)){logTool("handoff_to_human",{topic:"מחיר"},JSON.stringify({transferred:true}),true);return{text:"העברתי את פרטי הפנייה לטיפולו הישיר של ראמי 🤝\nהוא יחזור אליך לגבי מחיר."};}if(pending&&/מאשר|כן|נכון|מצוין|שלח/.test(text)){logTool("inject_order",{summary:pending,idempotencyKey:"ord-"+Date.now()},JSON.stringify({success:true}),true);pending=null;return{text:"ההזמנה נקלטה וממתינה לאישור ראמי ✅",media:SUCCESS};}if(/חול|מלט|בלה|משטח|חמרה|טיט|שק/.test(text)){const lines=[],deps=[];for(const[k,v]of Object.entries(CATALOG)){if(text.includes(k)){logTool("lookup_catalog",{query:k},JSON.stringify(v),true);lines.push(`• ${k} — מק״ט ${v.sku} (${v.unit})`);if(v.deposit)deps.push(v.deposit);}}pending=text;const sum=(lines.length?lines.join("\n"):"• "+text)+(deps.length?`\n\nפקדונות 1:1: ${[...new Set(deps)].join(", ")}`:"")+"\n\nהאם לסכם? השב *מאשר*.";return{text:"סיכום הזמנה מנורמל:\n\n"+sum,buttons:["✅ מאשר","✏️ לתקן"]};}if(/שלום|היי|בוקר|مرحبا|hi|hello/i.test(text)||text.length<12){if(persona.id==="new"||persona.id==="chameleon"){logTool("get_media",{key:"WELCOME_CARD"},WELCOME,true);return{text:"שלום וברוך הבא לח. סבן חומרי בניין 👋\nאיך אפשר לעזור?",media:WELCOME,buttons:["🏗️ הזמנת חומרים","📦 סטטוס הזמנה","🗓️ תיאום פגישה","👨‍💼 פנייה לראמי"]};}return{text:`שלום ${persona.name} 👋 במה אפשר לעזור היום?`,buttons:["🏗️ הזמנת חומרים","📦 סטטוס הזמנה","👨‍💼 פנייה לראמי"]};}return{text:"קיבלתי. אפשר לפרט חומרים, לבקש סטטוס, או לכתוב פנייה לראמי.",buttons:["🏗️ הזמנת חומרים","👨‍💼 פנייה לראמי"]};}
-function send(text){text=(text||"").trim();if(!text)return;addMsg("cust",text);setTimeout(()=>{const r=respond(text);addMsg("noa",r.text,r);},400);}
-function reset(){msgsEl.innerHTML="";tools=[];toolsEl.innerHTML="";pending=null;subEl.textContent=`${persona.name} · ${persona.phone}`;addMsg("system",`סימולטור אימון · ${persona.label} · ${persona.phone}`);}
-document.getElementById("personas").innerHTML=PERSONAS.map(p=>`<button data-id="${p.id}">${p.label}</button>`).join("");
-document.getElementById("personas").onclick=e=>{const b=e.target.closest("button");if(!b)return;persona=PERSONAS.find(x=>x.id===b.dataset.id);[...document.getElementById("personas").children].forEach(x=>x.classList.toggle("active",x.dataset.id===persona.id));reset();};
+const PERSONAS = [
+  { id: "new", label: "לקוח חדש", phone: "972501234567", name: "אורח", block: false },
+  { id: "existing", label: "לקוח קיים", phone: "972542223344", name: "ישראל כהן", block: false },
+  { id: "rami", label: "ראמי", phone: "972508860896", name: "ראמי מסארווה", block: true },
+  { id: "harel", label: "הראל", phone: "972505227724", name: "הראל אידלסון", block: true },
+  { id: "vered", label: "ורד", phone: "972508861180", name: "ורד אידלסון", block: true },
+  { id: "family", label: "ג׳ולי", phone: "972508898001", name: "ג׳ולי מסארווה", block: true },
+  { id: "friend", label: "מורסי", phone: "972502416361", name: "מורסי מסארווה", block: true },
+  { id: "chameleon", label: "קו הזיקית", phone: "972508861080", name: "סימולטור", block: false }
+];
+
+const CATALOG = {
+  "חול": { sku: "10001", unit: "בלה", deposit: "60002" },
+  "מלט": { sku: "20010", unit: "שק" },
+  "מלט אפור": { sku: "20010", unit: "שק" },
+  "משטח": { sku: "60060", unit: "יח׳", deposit: "60060" },
+  "בלה": { sku: "60002", unit: "יח׳", deposit: "60002" },
+  "חמרה": { sku: "10005", unit: "בלה", deposit: "60002" }
+};
+
+const SCENARIOS = [
+  { label: "פתיחה", text: "שלום" },
+  { label: "הזמנה", text: "2 בלות חול ו-20 שק מלט אפור למוצקין 22 רעננה" },
+  { label: "סטטוס", text: "מה הסטטוס של ההזמנה שלי?" },
+  { label: "מחיר", text: "כמה עולה בלה חול?" },
+  { label: "פגישה", text: "אני רוצה לתאם פגישה בסניף" },
+  { label: "ראמי", text: "תעבירי לראמי בבקשה" },
+  { label: "אישור", text: "מאשר" }
+];
+
+const WELCOME = "https://raw.githubusercontent.com/Saban-94/noa-invest/main/public/images/welcom.jpeg";
+const SUCCESS = "https://raw.githubusercontent.com/Saban-94/noa-invest/main/public/images/Designer.png";
+
+let persona = PERSONAS[0];
+let pending = null;
+let tools = [];
+
+const msgsEl = document.getElementById("msgs");
+const toolsEl = document.getElementById("tools");
+const subEl = document.getElementById("sub");
+
+function now() {
+  return new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, "&")
+    .replace(/</g, "<")
+    .replace(/>/g, ">")
+    .replace(/"/g, """);
+}
+
+function logTool(name, args, result, ok) {
+  if (ok === undefined) ok = true;
+  tools.unshift({ name: name, args: args, result: result, ok: ok });
+  toolsEl.innerHTML = tools.slice(0, 30).map(function (t) {
+    return '<div class="tool ' + (t.ok ? "" : "fail") + '"><b>' + escHtml(t.name) +
+      "</b><pre>" + escHtml(JSON.stringify(t.args)) +
+      "</pre><pre>" + escHtml(t.result) + "</pre></div>";
+  }).join("");
+}
+
+function addMsg(role, text, opts) {
+  opts = opts || {};
+  var div = document.createElement("div");
+  if (role === "system") {
+    div.className = "sys";
+    div.textContent = text;
+    msgsEl.appendChild(div);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+    return;
+  }
+  div.className = "bubble " + (role === "noa" ? "noa" : "cust");
+  var html = "";
+  if (role === "noa") {
+    html += '<div style="font-size:10px;color:#7ee2c5;font-weight:800;margin-bottom:4px">נועה</div>';
+  }
+  if (opts.media) {
+    html += '<img class="media" src="' + escHtml(opts.media) + '" alt="" />';
+  }
+  html += escHtml(text);
+  if (opts.buttons && opts.buttons.length) {
+    html += '<div class="btns">';
+    for (var i = 0; i < opts.buttons.length; i++) {
+      var b = opts.buttons[i];
+      html += '<button type="button" data-b="' + escHtml(b) + '">' + escHtml(b) + "</button>";
+    }
+    html += "</div>";
+  }
+  html += '<div class="meta">' + now() + "</div>";
+  div.innerHTML = html;
+  var btns = div.querySelectorAll("[data-b]");
+  for (var j = 0; j < btns.length; j++) {
+    btns[j].onclick = function () {
+      var v = this.getAttribute("data-b");
+      if (v === "✅ מאשר") v = "מאשר";
+      else if (v === "✏️ לתקן") v = "רגע, לתקן";
+      send(v);
+    };
+  }
+  msgsEl.appendChild(div);
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
+function respond(text) {
+  logTool("find_customer", { phone: persona.phone }, JSON.stringify({
+    found: persona.id !== "new",
+    name: persona.name,
+    blockCommerceMenu: persona.block
+  }), true);
+
+  if (persona.id === "rami") {
+    return { text: "ראמי 🤝 מוכן. מה הסידור / הפקודה?" };
+  }
+  if (persona.id === "harel") {
+    return {
+      text: "הראל 👑\n\nתפריט מנכ״ל:\n• 🔍 בירור תעודה 72h\n• 📊 דוח פערים",
+      buttons: ["🔍 בירור תעודה", "📊 דוח פערים"]
+    };
+  }
+  if (persona.id === "vered") {
+    return {
+      text: "ורד — מסוף בקרה.\nביקורת תעודות ופקדונות 1:1.\nאין תפריטי מכירה.",
+      buttons: ["📋 ביקורת תעודות"]
+    };
+  }
+  if (persona.id === "family") {
+    return { text: "היי ג׳ולי 💕 איך ניל ואדל?\nכספים → handoff שקט לראמי." };
+  }
+  if (persona.id === "friend") {
+    return { text: "אהלן אבו ודיע 🤝 מה קורה?\nבלי תפריטי מכירה." };
+  }
+
+  if (/הזמנת חומרים|🏗️|^1$/.test(text)) {
+    return { text: "מצוין 🏗️ איזה חומרים או ציוד תרצה להזמין היום?" };
+  }
+  if (/פנייה לראמי|👨‍💼|^2$|תעבירי/.test(text)) {
+    logTool("handoff_to_human", { phone: persona.phone, topic: text }, JSON.stringify({ transferred: true }), true);
+    if (/תעבירי|handoff/i.test(text) || text.length > 15) {
+      return { text: "העברתי את פרטי הפנייה לטיפולו הישיר של ראמי 🤝" };
+    }
+    return { text: "בשמחה, במה נוכל לעזור ומה תרצה למסור לראמי? 🤝" };
+  }
+  if (/תיאום פגישה|🗓️|פגישה|^3$/.test(text)) {
+    return { text: "אשמח לתאם פגישה בסניף התלמיד 6.\nמה הנושא והתאריך המועדף?" };
+  }
+  if (/סטטוס|📦/.test(text)) {
+    var orders = persona.id === "existing" ? [{ id: "ORD-1042", status: "ממתין לשיבוץ" }] : [];
+    logTool("get_orders", { phone: persona.phone }, JSON.stringify({ orders: orders }), true);
+    if (persona.id === "existing") {
+      return {
+        text: "מצאתי הזמנה פתוחה:\n• ORD-1042 — 2 בלה חול\nסטטוס: ממתין לשיבוץ ראמי",
+        buttons: ["👨‍💼 פנייה לראמי"]
+      };
+    }
+    return {
+      text: "לא מצאתי הזמנות פתוחות.\nרוצה לפתוח הזמנה?",
+      buttons: ["🏗️ הזמנת חומרים"]
+    };
+  }
+  if (/כמה|מחיר|הנחה|עולה/.test(text)) {
+    logTool("handoff_to_human", { topic: "מחיר" }, JSON.stringify({ transferred: true }), true);
+    return { text: "העברתי את פרטי הפנייה לטיפולו הישיר של ראמי 🤝\nהוא יחזור אליך לגבי מחיר." };
+  }
+  if (pending && /מאשר|כן|נכון|מצוין|שלח/.test(text)) {
+    logTool("inject_order", { summary: pending, idempotencyKey: "ord-" + Date.now() }, JSON.stringify({ success: true }), true);
+    pending = null;
+    return { text: "ההזמנה נקלטה וממתינה לאישור ראמי ✅", media: SUCCESS };
+  }
+  if (/חול|מלט|בלה|משטח|חמרה|טיט|שק/.test(text)) {
+    var lines = [];
+    var deps = [];
+    var keys = Object.keys(CATALOG);
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      if (text.indexOf(key) !== -1) {
+        var v = CATALOG[key];
+        logTool("lookup_catalog", { query: key }, JSON.stringify(v), true);
+        lines.push("• " + key + " — מק״ט " + v.sku + " (" + v.unit + ")");
+        if (v.deposit) deps.push(v.deposit);
+      }
+    }
+    pending = text;
+    var sum = lines.length ? lines.join("\n") : "• " + text;
+    if (deps.length) {
+      var uniq = [];
+      for (var d = 0; d < deps.length; d++) {
+        if (uniq.indexOf(deps[d]) === -1) uniq.push(deps[d]);
+      }
+      sum += "\n\nפקדונות 1:1: " + uniq.join(", ");
+    }
+    sum += "\n\nהאם לסכם? השב *מאשר*.";
+    return { text: "סיכום הזמנה מנורמל:\n\n" + sum, buttons: ["✅ מאשר", "✏️ לתקן"] };
+  }
+  if (/שלום|היי|בוקר|مرحبا|hi|hello/i.test(text) || text.length < 12) {
+    if (persona.id === "new" || persona.id === "chameleon") {
+      logTool("get_media", { key: "WELCOME_CARD" }, WELCOME, true);
+      return {
+        text: "שלום וברוך הבא לח. סבן חומרי בניין 👋\nאיך אפשר לעזור?",
+        media: WELCOME,
+        buttons: ["🏗️ הזמנת חומרים", "📦 סטטוס הזמנה", "🗓️ תיאום פגישה", "👨‍💼 פנייה לראמי"]
+      };
+    }
+    return {
+      text: "שלום " + persona.name + " 👋 במה אפשר לעזור היום?",
+      buttons: ["🏗️ הזמנת חומרים", "📦 סטטוס הזמנה", "👨‍💼 פנייה לראמי"]
+    };
+  }
+  return {
+    text: "קיבלתי. אפשר לפרט חומרים, לבקש סטטוס, או לכתוב פנייה לראמי.",
+    buttons: ["🏗️ הזמנת חומרים", "👨‍💼 פנייה לראמי"]
+  };
+}
+
+function send(text) {
+  text = (text || "").trim();
+  if (!text) return;
+  addMsg("cust", text);
+  setTimeout(function () {
+    var r = respond(text);
+    addMsg("noa", r.text, r);
+  }, 400);
+}
+
+function reset() {
+  msgsEl.innerHTML = "";
+  tools = [];
+  toolsEl.innerHTML = "";
+  pending = null;
+  subEl.textContent = persona.name + " · " + persona.phone;
+  addMsg("system", "סימולטור אימון · " + persona.label + " · " + persona.phone);
+}
+
+document.getElementById("personas").innerHTML = PERSONAS.map(function (p) {
+  return '<button type="button" data-id="' + p.id + '">' + p.label + "</button>";
+}).join("");
+
+document.getElementById("personas").onclick = function (e) {
+  var b = e.target.closest("button");
+  if (!b) return;
+  for (var i = 0; i < PERSONAS.length; i++) {
+    if (PERSONAS[i].id === b.getAttribute("data-id")) {
+      persona = PERSONAS[i];
+      break;
+    }
+  }
+  var kids = document.getElementById("personas").children;
+  for (var c = 0; c < kids.length; c++) {
+    kids[c].classList.toggle("active", kids[c].getAttribute("data-id") === persona.id);
+  }
+  reset();
+};
+
 document.getElementById("personas").children[0].classList.add("active");
-document.getElementById("scenarios").innerHTML=SCENARIOS.map(s=>`<button type="button">${s.label}</button>`).join("");
-document.getElementById("scenarios").onclick=e=>{const b=e.target.closest("button");if(!b)return;const s=SCENARIOS.find(x=>x.label===b.textContent);if(s)send(s.text);};
-document.getElementById("form").onsubmit=e=>{e.preventDefault();send(document.getElementById("input").value);document.getElementById("input").value="";};
+
+document.getElementById("scenarios").innerHTML = SCENARIOS.map(function (s) {
+  return '<button type="button">' + s.label + "</button>";
+}).join("");
+
+document.getElementById("scenarios").onclick = function (e) {
+  var b = e.target.closest("button");
+  if (!b) return;
+  for (var i = 0; i < SCENARIOS.length; i++) {
+    if (SCENARIOS[i].label === b.textContent) {
+      send(SCENARIOS[i].text);
+      break;
+    }
+  }
+};
+
+document.getElementById("form").onsubmit = function (e) {
+  e.preventDefault();
+  var inp = document.getElementById("input");
+  send(inp.value);
+  inp.value = "";
+};
+
 reset();
 </script>
 </body>
