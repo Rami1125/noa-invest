@@ -1,1 +1,99 @@
-LOADING
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>אימון נועה · WhatsApp Simulator | ח. סבן</title>
+  <style>
+    :root { --wa-bg:#0b141a; --wa-panel:#1f2c34; --wa-in:#1f2c34; --wa-out:#005c4b; --wa-accent:#00a884; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Assistant, Rubik, system-ui, sans-serif; background:var(--wa-bg); color:#e9edef; height:100dvh; display:flex; flex-direction:column; }
+    header { background:var(--wa-panel); padding:10px 14px; display:flex; align-items:center; gap:10px; border-bottom:1px solid rgba(255,255,255,.08); }
+    header h1 { font-size:15px; margin:0; }
+    header p { margin:0; font-size:11px; color:#8696a0; }
+    .personas { display:flex; gap:6px; overflow-x:auto; padding:8px; background:#111b21; border-bottom:1px solid rgba(255,255,255,.05); }
+    .personas button { border:0; border-radius:999px; padding:6px 10px; font-size:11px; font-weight:700; cursor:pointer; background:rgba(255,255,255,.06); color:#8696a0; white-space:nowrap; }
+    .personas button.active { background:rgba(0,168,132,.2); color:#7ee2c5; outline:1px solid rgba(0,168,132,.45); }
+    .chat-head { display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--wa-panel); }
+    .chat-head img { width:40px; height:40px; border-radius:50%; object-fit:cover; }
+    .msgs { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px; background:#0b141a; }
+    .bubble { max-width:min(92%,28rem); padding:8px 12px; border-radius:8px; font-size:13.5px; line-height:1.45; white-space:pre-wrap; box-shadow:0 1px 1px rgba(0,0,0,.2); }
+    .noa { align-self:flex-start; background:var(--wa-in); border-top-right-radius:0; }
+    .cust { align-self:flex-end; background:var(--wa-out); border-top-left-radius:0; }
+    .sys { align-self:center; background:#182229; color:#8696a0; font-size:11px; padding:4px 12px; border-radius:8px; }
+    .btns { margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.1); display:flex; flex-direction:column; gap:6px; }
+    .btns button { background:rgba(10,124,102,.25); color:#7ee2c5; border:0; border-radius:6px; padding:8px; font-weight:700; font-size:13px; cursor:pointer; }
+    .btns button:hover { background:rgba(10,124,102,.4); }
+    .meta { font-size:10px; color:#8696a0; text-align:left; margin-top:4px; }
+    .scenarios { display:flex; gap:6px; overflow-x:auto; padding:6px 8px; background:#111b21; border-top:1px solid rgba(255,255,255,.05); }
+    .scenarios button { border:1px solid rgba(0,168,132,.3); background:rgba(0,168,132,.1); color:#7ee2c5; border-radius:999px; padding:5px 10px; font-size:11px; font-weight:700; cursor:pointer; white-space:nowrap; }
+    .composer { display:flex; gap:8px; padding:8px; background:var(--wa-panel); border-top:1px solid rgba(255,255,255,.08); }
+    .composer input { flex:1; border-radius:999px; border:1px solid rgba(255,255,255,.1); background:#2a3942; color:#fff; padding:10px 16px; font-size:14px; outline:none; }
+    .composer button { width:42px; height:42px; border-radius:50%; border:0; background:var(--wa-accent); color:#fff; font-size:18px; cursor:pointer; }
+    .layout { display:flex; flex:1; min-height:0; }
+    .main { display:flex; flex-direction:column; flex:1; min-width:0; }
+    .tools { width:300px; border-right:1px solid rgba(255,255,255,.08); background:#0f171c; display:none; flex-direction:column; }
+    @media(min-width:900px){ .tools { display:flex; } }
+    .tools h2 { font-size:12px; margin:0; padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.08); }
+    .tool-log { flex:1; overflow:auto; padding:8px; font-size:11px; }
+    .tool { border-radius:8px; border:1px solid rgba(0,168,132,.2); background:rgba(0,168,132,.05); padding:8px; margin-bottom:8px; }
+    .tool.fail { border-color:rgba(239,68,68,.3); background:rgba(239,68,68,.05); }
+    .tool b { color:#7ee2c5; }
+    pre { margin:4px 0 0; white-space:pre-wrap; color:#aebac1; font-size:10px; }
+    img.media { max-height:160px; width:100%; object-fit:cover; border-radius:6px; margin-bottom:6px; }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1>🎓 אימון נועה · WhatsApp Simulator</h1>
+      <p>Kapso-style · תפריטים · כפתורים · כלים · v8.0</p>
+    </div>
+  </header>
+  <div class="layout">
+    <div class="main">
+      <div class="personas" id="personas"></div>
+      <div class="chat-head">
+        <img src="https://raw.githubusercontent.com/Saban-94/noa-invest/main/public/images/rami-noa.jpeg" alt="נועה" onerror="this.src='https://raw.githubusercontent.com/Saban-94/noa-invest/main/public/images/welcom.jpeg'" />
+        <div>
+          <div style="font-weight:800;font-size:14px">נועה AI <span style="font-size:10px;background:rgba(0,168,132,.2);color:#7ee2c5;padding:2px 6px;border-radius:4px">מחוברת</span></div>
+          <div id="sub" style="font-size:11px;color:#8696a0"></div>
+        </div>
+      </div>
+      <div class="msgs" id="msgs"></div>
+      <div class="scenarios" id="scenarios"></div>
+      <form class="composer" id="form">
+        <input id="input" placeholder="הקלד הודעה כמו בוואטסאפ…" autocomplete="off" />
+        <button type="submit">➤</button>
+      </form>
+    </div>
+    <aside class="tools">
+      <h2>🔧 יומן כלים (Mock Kapso)</h2>
+      <div class="tool-log" id="tools"></div>
+    </aside>
+  </div>
+<script>
+const PERSONAS=[{id:"new",label:"לקוח חדש",phone:"972501234567",name:"אורח",block:false},{id:"existing",label:"לקוח קיים",phone:"972542223344",name:"ישראל כהן",block:false},{id:"rami",label:"ראמי",phone:"972508860896",name:"ראמי מסארווה",block:true},{id:"harel",label:"הראל",phone:"972505227724",name:"הראל אידלסון",block:true},{id:"vered",label:"ורד",phone:"972508861180",name:"ורד אידלסון",block:true},{id:"family",label:"ג׳ולי",phone:"972508898001",name:"ג׳ולי מסארווה",block:true},{id:"friend",label:"מורסי",phone:"972502416361",name:"מורסי מסארווה",block:true},{id:"chameleon",label:"קו הזיקית",phone:"972508861080",name:"סימולטור",block:false}];
+const CATALOG={"חול":{sku:"10001",unit:"בלה",deposit:"60002"},"מלט":{sku:"20010",unit:"שק"},"מלט אפור":{sku:"20010",unit:"שק"},"משטח":{sku:"60060",unit:"יח׳",deposit:"60060"},"בלה":{sku:"60002",unit:"יח׳",deposit:"60002"},"חמרה":{sku:"10005",unit:"בלה",deposit:"60002"}};
+const SCENARIOS=[{label:"פתיחה",text:"שלום"},{label:"הזמנה",text:"2 בלות חול ו-20 שק מלט אפור למוצקין 22 רעננה"},{label:"סטטוס",text:"מה הסטטוס של ההזמנה שלי?"},{label:"מחיר",text:"כמה עולה בלה חול?"},{label:"פגישה",text:"אני רוצה לתאם פגישה בסניף"},{label:"ראמי",text:"תעבירי לראמי בבקשה"},{label:"אישור",text:"מאשר"}];
+const WELCOME="https://raw.githubusercontent.com/Saban-94/noa-invest/main/public/images/welcom.jpeg";
+const SUCCESS="https://raw.githubusercontent.com/Saban-94/noa-invest/main/public/images/Designer.png";
+let persona=PERSONAS[0],pending=null,tools=[];
+const msgsEl=document.getElementById("msgs"),toolsEl=document.getElementById("tools"),subEl=document.getElementById("sub");
+function now(){return new Date().toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"});}
+function logTool(name,args,result,ok=true){tools.unshift({name,args,result,ok});toolsEl.innerHTML=tools.slice(0,30).map(t=>`<div class="tool ${t.ok?"":"fail"}"><b>${t.name}</b><pre>${JSON.stringify(t.args)}</pre><pre>${t.result}</pre></div>`).join("");}
+function addMsg(role,text,opts={}){const div=document.createElement("div");if(role==="system"){div.className="sys";div.textContent=text;msgsEl.appendChild(div);msgsEl.scrollTop=msgsEl.scrollHeight;return;}div.className="bubble "+(role==="noa"?"noa":"cust");let html="";if(role==="noa")html+=`<div style="font-size:10px;color:#7ee2c5;font-weight:800;margin-bottom:4px">נועה</div>`;if(opts.media)html+=`<img class="media" src="${opts.media}" alt="" />`;html+=text.replace(/</g,"<");if(opts.buttons){html+=`<div class="btns">`+opts.buttons.map(b=>`<button type="button" data-b="${b.replace(/"/g,""")}">${b}</button>`).join("")+`</div>`;}html+=`<div class="meta">${now()}</div>`;div.innerHTML=html;div.querySelectorAll("[data-b]").forEach(btn=>{btn.onclick=()=>{const v=btn.getAttribute("data-b");const map={"✅ מאשר":"מאשר","✏️ לתקן":"רגע, לתקן"};send(map[v]||v);};});msgsEl.appendChild(div);msgsEl.scrollTop=msgsEl.scrollHeight;}
+function respond(text){logTool("find_customer",{phone:persona.phone},JSON.stringify({found:persona.id!=="new",name:persona.name,blockCommerceMenu:persona.block}),true);if(persona.id==="rami")return{text:"ראמי 🤝 מוכן. מה הסידור / הפקודה?"};if(persona.id==="harel")return{text:"הראל 👑\n\nתפריט מנכ״ל:\n• 🔍 בירור תעודה 72h\n• 📊 דוח פערים",buttons:["🔍 בירור תעודה","📊 דוח פערים"]};if(persona.id==="vered")return{text:"ורד — מסוף בקרה.\nביקורת תעודות ופקדונות 1:1.\nאין תפריטי מכירה.",buttons:["📋 ביקורת תעודות"]};if(persona.id==="family")return{text:"היי ג׳ולי 💕 איך ניל ואדל?\nכספים → handoff שקט לראמי."};if(persona.id==="friend")return{text:"אהלן אבו ודיע 🤝 מה קורה?\nבלי תפריטי מכירה."};if(/הזמנת חומרים|🏗️|^1$/.test(text))return{text:"מצוין 🏗️ איזה חומרים או ציוד תרצה להזמין היום?"};if(/פנייה לראמי|👨‍💼|^2$|תעבירי/.test(text)){logTool("handoff_to_human",{phone:persona.phone,topic:text},JSON.stringify({transferred:true}),true);if(/תעבירי|handoff/i.test(text)||text.length>15)return{text:"העברתי את פרטי הפנייה לטיפולו הישיר של ראמי 🤝"};return{text:"בשמחה, במה נוכל לעזור ומה תרצה למסור לראמי? 🤝"};}if(/תיאום פגישה|🗓️|פגישה|^3$/.test(text))return{text:"אשמח לתאם פגישה בסניף התלמיד 6.\nמה הנושא והתאריך המועדף?"};if(/סטטוס|📦/.test(text)){logTool("get_orders",{phone:persona.phone},JSON.stringify({orders:persona.id==="existing"?[{id:"ORD-1042",status:"ממתין לשיבוץ"}]:[]}),true);return persona.id==="existing"?{text:"מצאתי הזמנה פתוחה:\n• ORD-1042 — 2 בלה חול\nסטטוס: ממתין לשיבוץ ראמי",buttons:["👨‍💼 פנייה לראמי"]}:{text:"לא מצאתי הזמנות פתוחות.\nרוצה לפתוח הזמנה?",buttons:["🏗️ הזמנת חומרים"]};}if(/כמה|מחיר|הנחה|עולה/.test(text)){logTool("handoff_to_human",{topic:"מחיר"},JSON.stringify({transferred:true}),true);return{text:"העברתי את פרטי הפנייה לטיפולו הישיר של ראמי 🤝\nהוא יחזור אליך לגבי מחיר."};}if(pending&&/מאשר|כן|נכון|מצוין|שלח/.test(text)){logTool("inject_order",{summary:pending,idempotencyKey:"ord-"+Date.now()},JSON.stringify({success:true}),true);pending=null;return{text:"ההזמנה נקלטה וממתינה לאישור ראמי ✅",media:SUCCESS};}if(/חול|מלט|בלה|משטח|חמרה|טיט|שק/.test(text)){const lines=[],deps=[];for(const[k,v]of Object.entries(CATALOG)){if(text.includes(k)){logTool("lookup_catalog",{query:k},JSON.stringify(v),true);lines.push(`• ${k} — מק״ט ${v.sku} (${v.unit})`);if(v.deposit)deps.push(v.deposit);}}pending=text;const sum=(lines.length?lines.join("\n"):"• "+text)+(deps.length?`\n\nפקדונות 1:1: ${[...new Set(deps)].join(", ")}`:"")+"\n\nהאם לסכם? השב *מאשר*.";return{text:"סיכום הזמנה מנורמל:\n\n"+sum,buttons:["✅ מאשר","✏️ לתקן"]};}if(/שלום|היי|בוקר|مرحبا|hi|hello/i.test(text)||text.length<12){if(persona.id==="new"||persona.id==="chameleon"){logTool("get_media",{key:"WELCOME_CARD"},WELCOME,true);return{text:"שלום וברוך הבא לח. סבן חומרי בניין 👋\nאיך אפשר לעזור?",media:WELCOME,buttons:["🏗️ הזמנת חומרים","📦 סטטוס הזמנה","🗓️ תיאום פגישה","👨‍💼 פנייה לראמי"]};}return{text:`שלום ${persona.name} 👋 במה אפשר לעזור היום?`,buttons:["🏗️ הזמנת חומרים","📦 סטטוס הזמנה","👨‍💼 פנייה לראמי"]};}return{text:"קיבלתי. אפשר לפרט חומרים, לבקש סטטוס, או לכתוב פנייה לראמי.",buttons:["🏗️ הזמנת חומרים","👨‍💼 פנייה לראמי"]};}
+function send(text){text=(text||"").trim();if(!text)return;addMsg("cust",text);setTimeout(()=>{const r=respond(text);addMsg("noa",r.text,r);},400);}
+function reset(){msgsEl.innerHTML="";tools=[];toolsEl.innerHTML="";pending=null;subEl.textContent=`${persona.name} · ${persona.phone}`;addMsg("system",`סימולטור אימון · ${persona.label} · ${persona.phone}`);}
+document.getElementById("personas").innerHTML=PERSONAS.map(p=>`<button data-id="${p.id}">${p.label}</button>`).join("");
+document.getElementById("personas").onclick=e=>{const b=e.target.closest("button");if(!b)return;persona=PERSONAS.find(x=>x.id===b.dataset.id);[...document.getElementById("personas").children].forEach(x=>x.classList.toggle("active",x.dataset.id===persona.id));reset();};
+document.getElementById("personas").children[0].classList.add("active");
+document.getElementById("scenarios").innerHTML=SCENARIOS.map(s=>`<button type="button">${s.label}</button>`).join("");
+document.getElementById("scenarios").onclick=e=>{const b=e.target.closest("button");if(!b)return;const s=SCENARIOS.find(x=>x.label===b.textContent);if(s)send(s.text);};
+document.getElementById("form").onsubmit=e=>{e.preventDefault();send(document.getElementById("input").value);document.getElementById("input").value="";};
+reset();
+</script>
+</body>
+</html>
