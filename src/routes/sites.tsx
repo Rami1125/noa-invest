@@ -124,19 +124,59 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    .custom-pin {
-      border: 2px solid #ffffff;
-      color: white;
+    html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    
+    /* סרגל כפתורי שכבות מפה (רחובות מול לוויין בתים כמו גוגל) */
+    .map-controls-bar {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1000;
+      display: flex;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      padding: 5px;
+      border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+    .layer-btn {
+      border: none;
+      background: transparent;
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 12px;
       font-weight: 800;
+      color: #475569;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .layer-btn:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+    .layer-btn.active {
+      background: #047857;
+      color: #ffffff;
+      box-shadow: 0 2px 8px rgba(4, 120, 87, 0.35);
+    }
+
+    .custom-pin {
+      border: 2.5px solid #ffffff;
+      color: white;
+      font-weight: 900;
       border-radius: 50%;
-      width: 26px;
-      height: 26px;
+      width: 28px;
+      height: 28px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 11px;
-      box-shadow: 0 2px 7px rgba(0,0,0,0.35);
+      box-shadow: 0 3px 9px rgba(0,0,0,0.45);
       cursor: pointer;
       transition: transform 0.25s, box-shadow 0.25s;
     }
@@ -145,48 +185,50 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
     }
     .custom-pin.delay {
       background: #dc2626 !important;
-      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4), 0 3px 8px rgba(0,0,0,0.4);
+      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.45), 0 4px 10px rgba(0,0,0,0.5);
       animation: pulse-ring 2.5s infinite;
     }
     @keyframes pulse-ring {
-      0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
-      70% { box-shadow: 0 0 0 9px rgba(220, 38, 38, 0); }
+      0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.65); }
+      70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
       100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
     }
     .custom-pin.selected {
       background: #7c3aed !important;
       transform: scale(1.45);
       z-index: 1000 !important;
-      box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.5), 0 5px 12px rgba(0,0,0,0.45);
+      box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.55), 0 6px 14px rgba(0,0,0,0.55);
     }
     .custom-pin:hover {
       transform: scale(1.3);
     }
+
     .leaflet-popup-content-wrapper {
       border-radius: 16px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.28);
       direction: rtl;
       text-align: right;
-      padding: 6px;
+      padding: 8px;
+      background: #ffffff;
     }
     .popup-title {
       font-size: 15px;
-      font-weight: 800;
+      font-weight: 900;
       color: #0f172a;
       margin-bottom: 2px;
     }
     .popup-sub {
       font-size: 11px;
       color: #64748b;
-      font-weight: 600;
+      font-weight: 700;
     }
     .popup-addr {
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 700;
       color: #334155;
       margin: 6px 0;
       border-top: 1px solid #f1f5f9;
-      padding-top: 4px;
+      padding-top: 6px;
     }
     .popup-badge {
       display: inline-flex;
@@ -225,19 +267,81 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
       font-weight: 900;
       color: #0f172a;
     }
+    .popup-gmaps-link {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      margin-top: 8px;
+      background: #2563eb;
+      color: #ffffff !important;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 6px 10px;
+      border-radius: 8px;
+      transition: background 0.2s;
+    }
+    .popup-gmaps-link:hover {
+      background: #1d4ed8;
+    }
   </style>
 </head>
 <body>
+  <div class="map-controls-bar">
+    <button id="btn-streets" class="layer-btn active" onclick="switchLayer('streets')">
+      🗺️ מפת רחובות
+    </button>
+    <button id="btn-satellite" class="layer-btn" onclick="switchLayer('satellite')">
+      🛰️ תצלום לוויין ובתים (כמו גוגל)
+    </button>
+  </div>
+
   <div id="map"></div>
+
   <script>
     const sites = ${sitesJson};
-    const defaultCenter = [32.1583, 34.8911];
-    const map = L.map("map", { zoomControl: true }).setView(defaultCenter, 11);
+    const defaultCenter = [32.1583, 34.8911]; // מרכז הוד השרון
+    const map = L.map("map", { zoomControl: false }).setView(defaultCenter, 11);
+    L.control.zoom({ position: "bottomright" }).addTo(map);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 18,
-      attribution: "© OpenStreetMap"
+    // 1. שכבת מפת רחובות חכמה בעברית מלאה (ללא חסימות 403 של OSM)
+    const streetsLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      maxZoom: 19,
+      subdomains: "abcd",
+      attribution: "© CARTO, OpenStreetMap"
     }).addTo(map);
+
+    // 2. שכבת לוויין אמיתית ובתים ברזולוציה גבוהה (Esri World Imagery)
+    const satImagery = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19,
+      attribution: "© Esri World Imagery"
+    });
+
+    // שכבת שמות רחובות וגבולות על גבי הלוויין
+    const satLabels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19
+    });
+
+    const satelliteGroup = L.layerGroup([satImagery, satLabels]);
+
+    let currentLayer = "streets";
+    function switchLayer(mode) {
+      if (mode === currentLayer) return;
+      if (mode === "satellite") {
+        map.removeLayer(streetsLayer);
+        map.addLayer(satelliteGroup);
+        document.getElementById("btn-satellite").className = "layer-btn active";
+        document.getElementById("btn-streets").className = "layer-btn";
+        currentLayer = "satellite";
+      } else {
+        map.removeLayer(satelliteGroup);
+        map.addLayer(streetsLayer);
+        document.getElementById("btn-streets").className = "layer-btn active";
+        document.getElementById("btn-satellite").className = "layer-btn";
+        currentLayer = "streets";
+      }
+    }
 
     const markers = [];
     const bounds = L.latLngBounds();
@@ -257,9 +361,9 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
       const icon = L.divIcon({
         className: "marker-wrap",
         html: el,
-        iconSize: [26, 26],
-        iconAnchor: [13, 13],
-        popupAnchor: [0, -14],
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        popupAnchor: [0, -16],
       });
 
       const badgeHtml = s.isDelay
@@ -269,6 +373,7 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
       const ptoText = s.ptoOpens ? " · 🏗️ " + s.ptoOpens + " סשנים של מנוף PTO (" + s.ptoMin + " דקות)" : "";
       const p80Text = s.p80Min ? " (תכנון P80: " + s.p80Min + " דקות)" : "";
       const subCust = s.customerNo ? '<div class="popup-sub">מספר לקוח: #' + s.customerNo + '</div>' : "";
+      const gmapsUrl = "https://www.google.com/maps/@?api=1&map_action=map&center=" + s.lat + "," + s.lon + "&zoom=18&basemap=satellite";
 
       const popupHtml = "<div>" +
         badgeHtml +
@@ -282,6 +387,9 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
         '<div style="font-size: 11px; color: #475569; margin-top: 6px;">' +
           "🚚 " + s.visits + " ביקורים בהיסטוריה" + ptoText +
         "</div>" +
+        '<a href="' + gmapsUrl + '" target="_blank" class="popup-gmaps-link">' +
+          '🌐 פתח ב-Google Maps (לוויין ובתים)' +
+        '</a>' +
       "</div>";
 
       const marker = L.marker(latLng, { icon: icon }).addTo(map);
@@ -295,7 +403,7 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
     });
 
     if (selectedMarker) {
-      map.setView(selectedMarker.getLatLng(), 14, { animate: true });
+      map.setView(selectedMarker.getLatLng(), 15, { animate: true });
       selectedMarker.openPopup();
     } else if (sites.length > 0 && bounds.isValid()) {
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
