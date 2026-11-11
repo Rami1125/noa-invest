@@ -8,6 +8,10 @@ import {
   generateInteractiveMapHtml,
   isSiteDelayBottleneck,
   getExpectedUnloadingMinutes,
+  buildUnloadAdvice,
+  isSlowUnload,
+  SLOW_UNLOAD_MIN,
+  type MapPinLayer,
 } from "@/lib/sites-map-html";
 import { fmtShort } from "@/lib/he-date";
 import { cn } from "@/lib/utils";
@@ -38,6 +42,7 @@ function SitesPage() {
   const [expandedKey, setExpandedKey] = useState("");
   const [selectedRegion, setSelectedRegion] = useState<Region>("all");
   const [delayOnlyFilter, setDelayOnlyFilter] = useState(false);
+  const [pinLayer, setPinLayer] = useState<MapPinLayer>("all");
 
   const q = useQuery({
     queryKey: ["site-atlas"],
@@ -89,11 +94,15 @@ function SitesPage() {
       filteredList,
       selectedSite?.siteKey || (selectedSite ? `${selectedSite.city}|${selectedSite.address}` : undefined),
       cartoKey,
+      pinLayer,
     );
-  }, [filteredList, selectedSite, cartoKey]);
+  }, [filteredList, selectedSite, cartoKey, pinLayer]);
 
-  const selectedExpectedMin = selectedSite ? getExpectedUnloadingMinutes(selectedSite) : 30;
-  const selectedIsDelay = selectedSite ? isSiteDelayBottleneck(selectedSite) : false;
+  const selectedAdvice = selectedSite ? buildUnloadAdvice(selectedSite) : null;
+  const slowCount = useMemo(
+    () => filteredList.filter(isSlowUnload).length,
+    [filteredList],
+  );
 
   return (
     <>
@@ -122,7 +131,7 @@ function SitesPage() {
           {[
             { label: "אתרים", value: data?.sites.length ?? "—", icon: MapPin },
             { label: "על המפה", value: mappedCount, icon: Building2 },
-            { label: "מעכבים", value: delayCountTotal, icon: AlertTriangle },
+            { label: "מעל 20 דק׳", value: slowCount, icon: AlertTriangle },
             { label: "מפתח CARTO", value: cartoKey ? "פעיל" : "חסר", icon: CheckCircle2 },
           ].map((m) => (
             <div key={m.label} className="rounded-2xl border bg-card p-4 shadow-sm">
@@ -130,9 +139,7 @@ function SitesPage() {
                 <m.icon className="h-3.5 w-3.5" />
                 {m.label}
               </div>
-              <div className={cn("mt-1 font-display text-xl font-extrabold")}>
-                {m.value}
-              </div>
+              <div className="mt-1 font-display text-xl font-extrabold">{m.value}</div>
             </div>
           ))}
         </div>
@@ -162,6 +169,26 @@ function SitesPage() {
           >
             מעכבים בלבד
           </button>
+          <span className="mx-1 text-[10px] font-bold text-muted-foreground">סיכות:</span>
+          {(
+            [
+              ["all", "הכל"],
+              ["slow", `מעל ${SLOW_UNLOAD_MIN} דק׳ (${slowCount})`],
+              ["normal", "שגרתיים"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setPinLayer(id)}
+              className={cn(
+                "rounded-xl px-3 py-1.5 text-xs font-bold",
+                pinLayer === id ? "bg-teal-700 text-white" : "bg-muted/50 hover:bg-muted",
+              )}
+            >
+              {label}
+            </button>
+          ))}
           <div className="relative min-w-[12rem] flex-1">
             <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -179,6 +206,7 @@ function SitesPage() {
               <h2 className="font-display font-bold">מפת כתובות</h2>
               <p className="text-xs text-muted-foreground">
                 {cartoKey ? "CARTO Basemaps Voyager · מפתח פעיל" : "CARTO ללא מפתח — הגדר CARTO_BASEMAPS_API_KEY ב־Vercel"}
+                {" · "}לחיצה על סיכה: כתובת, לקוח, שיקול דעת והמלצת AI
               </p>
             </div>
             {selectedSite?.latitude != null && (
@@ -196,17 +224,43 @@ function SitesPage() {
           <iframe
             title="מפת אתרי אספקה"
             srcDoc={mapHtml}
-            className="h-[380px] w-full border-0 md:h-[440px]"
+            className="h-[400px] w-full border-0 md:h-[480px]"
             sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
           />
-          {selectedSite && (
-            <div className="flex flex-wrap items-center gap-3 border-t px-4 py-3 text-sm">
-              <MapPin className="h-4 w-4 text-primary" />
-              <strong>{selectedSite.address}</strong>
-              <span className="text-muted-foreground">{selectedSite.city}</span>
-              <span className={cn("rounded-lg px-2 py-0.5 text-xs font-bold", selectedIsDelay ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800")}>
-                {selectedIsDelay ? "מעכב" : "שגרתי"} · צפי {selectedExpectedMin} דק׳
-              </span>
+          {selectedSite && selectedAdvice && (
+            <div className="space-y-3 border-t px-4 py-3">
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <MapPin className="h-4 w-4 text-primary" />
+                <strong>{selectedSite.address}</strong>
+                <span className="text-muted-foreground">{selectedSite.city}</span>
+                {selectedSite.customerName && (
+                  <span className="text-muted-foreground">· {selectedSite.customerName}</span>
+                )}
+                <span
+                  className={cn(
+                    "rounded-lg px-2 py-0.5 text-xs font-bold",
+                    selectedAdvice.level === "severe"
+                      ? "bg-red-100 text-red-800"
+                      : selectedAdvice.level === "slow"
+                        ? "bg-orange-100 text-orange-900"
+                        : selectedAdvice.level === "watch"
+                          ? "bg-amber-100 text-amber-900"
+                          : "bg-emerald-100 text-emerald-800",
+                  )}
+                >
+                  {selectedAdvice.levelHe} · צפי {selectedAdvice.expectedMin} דק׳
+                </span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <div className="rounded-xl border bg-muted/30 p-3 text-xs leading-relaxed">
+                  <div className="mb-1 font-bold text-muted-foreground">שיקול דעת — מתי לפרוק</div>
+                  <p className="text-foreground">{selectedAdvice.opinionHe}</p>
+                </div>
+                <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 text-xs leading-relaxed">
+                  <div className="mb-1 font-bold text-violet-800">המלצת AI — זמני פריקה לאתר</div>
+                  <p className="text-foreground">{selectedAdvice.aiRecommendHe}</p>
+                </div>
+              </div>
             </div>
           )}
         </section>
@@ -219,6 +273,7 @@ function SitesPage() {
             const isSelected =
               (selectedSite?.siteKey || `${selectedSite?.city}|${selectedSite?.address}`) === key;
             const delay = isSiteDelayBottleneck(site);
+            const slow = isSlowUnload(site);
             return (
               <article
                 key={`${key}-${i}`}
@@ -226,6 +281,7 @@ function SitesPage() {
                   "overflow-hidden rounded-2xl border bg-card shadow-sm",
                   isSelected && "border-primary/40",
                   delay && "border-red-200",
+                  !delay && slow && "border-orange-200",
                 )}
               >
                 <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
@@ -234,21 +290,38 @@ function SitesPage() {
                     onClick={() => setSelectedKey(key)}
                     className="flex min-h-12 min-w-0 flex-1 items-start gap-3 rounded-xl text-start"
                   >
-                    <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-xl", delay ? "bg-red-100 text-red-700" : "bg-primary/10 text-primary")}>
+                    <span
+                      className={cn(
+                        "grid h-10 w-10 shrink-0 place-items-center rounded-xl",
+                        delay
+                          ? "bg-red-100 text-red-700"
+                          : slow
+                            ? "bg-orange-100 text-orange-800"
+                            : "bg-primary/10 text-primary",
+                      )}
+                    >
                       <MapPin className="h-5 w-5" />
                     </span>
                     <span className="min-w-0">
                       <span className="block truncate font-bold">{site.address}</span>
                       <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {[site.city, site.customerName, site.customerNo && `#${site.customerNo}`].filter(Boolean).join(" · ")}
+                        {[site.city, site.customerName, site.customerNo && `#${site.customerNo}`]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </span>
                     </span>
                   </button>
                   <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                     <span className="rounded-lg bg-muted/40 px-2 py-1">ביקורים: {site.visits}</span>
-                    <span className="rounded-lg bg-muted/40 px-2 py-1">חציון: {site.medianMin != null ? `${site.medianMin}ד׳` : "—"}</span>
-                    <span className="rounded-lg bg-muted/40 px-2 py-1">P80: {site.p80Min != null ? `${site.p80Min}ד׳` : "—"}</span>
-                    <span className="rounded-lg bg-muted/40 px-2 py-1">צפי: {getExpectedUnloadingMinutes(site)}ד׳</span>
+                    <span className="rounded-lg bg-muted/40 px-2 py-1">
+                      חציון: {site.medianMin != null ? `${site.medianMin}ד׳` : "—"}
+                    </span>
+                    <span className="rounded-lg bg-muted/40 px-2 py-1">
+                      P80: {site.p80Min != null ? `${site.p80Min}ד׳` : "—"}
+                    </span>
+                    <span className="rounded-lg bg-muted/40 px-2 py-1">
+                      צפי: {getExpectedUnloadingMinutes(site)}ד׳
+                    </span>
                   </div>
                   <button
                     type="button"
@@ -275,7 +348,7 @@ function SitesPage() {
                           <li key={`${visit.dateIso}-${index}`} className="rounded-xl border bg-card p-3 text-xs">
                             <div className="flex flex-wrap justify-between gap-2 font-bold">
                               <span>{visit.dateIso ? fmtShort(visit.dateIso) : "—"}</span>
-                              <span className="text-muted-foreground font-normal">
+                              <span className="font-normal text-muted-foreground">
                                 {visit.driver}
                                 {visit.durationMin != null ? ` · ${visit.durationMin} דק׳` : ""}
                                 {visit.ptoMin != null ? ` · PTO ${visit.ptoMin}` : ""}
@@ -304,7 +377,9 @@ function SitesPage() {
             );
           })}
           {!filteredList.length && (
-            <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">אין אתרים בסינון.</p>
+            <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+              אין אתרים בסינון.
+            </p>
           )}
         </section>
       </main>
