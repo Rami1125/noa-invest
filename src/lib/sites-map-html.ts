@@ -1,6 +1,7 @@
 /**
  * מחולל מפת Leaflet מקצועית — סיכות, שכבות, המלצת זמני פריקה
  * סף ויזואלי: מעל 20 דק׳ שהייה/פריקה
+ * שלב ה׳: סיכות בשכבת pinsPane (z-index 650) מעל basemap — תמיד גלויות
  */
 import type { AtlasSite } from "@/lib/customer-history.functions";
 
@@ -250,8 +251,18 @@ export function generateInteractiveMapHtml(
     const sites = ${sitesJson};
     const cartoKey = ${keyJson};
     let pinFilter = ${layerJson};
-    const map = L.map("map", { zoomControl: false }).setView([32.1583, 34.8911], 11);
+    const map = L.map("map", {
+      zoomControl: false,
+      // שלב ה׳: סיכות תמיד בשכבה מעל אריחי הבסיס
+    }).setView([32.1583, 34.8911], 11);
     L.control.zoom({ position: "bottomleft" }).addTo(map);
+
+    // panes ייעודיים — z-index מעל tilePane (200) ו־overlayPane (400)
+    map.createPane("pinsPane");
+    map.getPane("pinsPane").style.zIndex = 650;
+    map.getPane("pinsPane").style.pointerEvents = "auto";
+    map.createPane("pinsShadowPane");
+    map.getPane("pinsShadowPane").style.zIndex = 640;
 
     const cartoUrl = cartoKey
       ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=" + encodeURIComponent(cartoKey)
@@ -279,7 +290,8 @@ export function generateInteractiveMapHtml(
       document.getElementById("btn-sat").className = "layer-btn" + (mode === "sat" ? " active" : "");
     }
 
-    const markerLayer = L.layerGroup().addTo(map);
+    // שכבת סיכות ייעודית — תמיד מעל basemap
+    const markerLayer = L.layerGroup([], { pane: "pinsPane" }).addTo(map);
     const markerByKey = {};
 
     function pinClass(s) {
@@ -345,9 +357,18 @@ export function generateInteractiveMapHtml(
           iconAnchor: [16, 32],
           popupAnchor: [0, -28]
         });
-        const m = L.marker(ll, { icon: icon, title: s.address });
-        m.bindPopup(popupHtml(s), { maxWidth: 340 });
+        const m = L.marker(ll, {
+          icon: icon,
+          title: s.address,
+          pane: "pinsPane",
+          shadowPane: "pinsShadowPane",
+          zIndexOffset: 1000,
+          riseOnHover: true,
+        });
+        m.bindPopup(popupHtml(s), { maxWidth: 340, autoPan: true });
         m.addTo(markerLayer);
+        // הבטחה: הסיכה מעל שכבות הבסיס
+        if (m.setZIndexOffset) m.setZIndexOffset(1000 + n);
         markerByKey[s.key] = m;
         if (s.isSelected) selectedMarker = m;
       });
@@ -369,6 +390,12 @@ export function generateInteractiveMapHtml(
     }
 
     rebuildMarkers();
+    // שלב ה׳ — ודאות: שכבת סיכות מעל tiles
+    if (markerLayer && map.hasLayer(markerLayer)) {
+      markerLayer.eachLayer(function(ly) {
+        if (ly.setZIndexOffset) ly.setZIndexOffset(1000);
+      });
+    }
   </script>
 </body>
 </html>`;
