@@ -1,5 +1,5 @@
 /**
- * שלב ג׳ — כרטיס אתר: היסטוריית כתובת, P50/P80, זמני PTO, ניווט לתעודה/לקוח
+ * שלב ג׳+ד׳ — כרטיס אתר: היסטוריה, P50/P80, טווחי צי, סימון מעל P80
  */
 import { Link } from "@tanstack/react-router";
 import { Card } from "@/components/ui/card";
@@ -15,6 +15,8 @@ import {
 import { formatKm, formatMinutes, distanceToYardKm } from "@/lib/logistics-intelligence";
 import type { AtlasSite } from "@/lib/customer-history.functions";
 import { cn } from "@/lib/utils";
+import { DWELL_RULES } from "@/lib/ituran";
+import { KIND_LABEL_HE } from "@/lib/dwell-intelligence";
 
 function osmEmbed(lat: number, lng: number) {
   const d = 0.03;
@@ -105,6 +107,32 @@ export function IturanSiteCard({ site, className }: Props) {
         ))}
       </div>
 
+      <div className="rounded-xl border border-border/50 bg-muted/15 px-3 py-2 text-xs">
+        <div className="font-semibold text-muted-foreground mb-1">טווחי צי (שלב ד׳) — סף תפעולי</div>
+        <div className="flex flex-wrap gap-3">
+          <span>
+            {KIND_LABEL_HE.crane}:{" "}
+            <strong className="text-foreground">
+              {DWELL_RULES.crane[0]}–{DWELL_RULES.crane[1]} דק׳
+            </strong>
+          </span>
+          <span>
+            {KIND_LABEL_HE.flatbed}:{" "}
+            <strong className="text-foreground">
+              {DWELL_RULES.flatbed[0]}–{DWELL_RULES.flatbed[1]} דק׳
+            </strong>
+          </span>
+          {site.p80Min != null ? (
+            <span>
+              P80 אתר זה: <strong className="text-foreground">{site.p80Min} דק׳</strong>
+              {site.medianMin != null ? ` · P50 ${site.medianMin}` : ""}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">אין P80 מחושב לאתר — ההשוואה לפי טווח צי בלבד</span>
+          )}
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
         <span>
           מדידות: <strong className="text-foreground">{site.samples ?? "—"}</strong>
@@ -156,6 +184,9 @@ export function IturanSiteCard({ site, className }: Props) {
                   <span className="font-bold">{fmtDate(v.dateIso)}</span>
                   <span className="text-muted-foreground">
                     {v.durationMin != null ? `${v.durationMin} דק׳ שהייה` : "אין משך"}
+                    {v.durationMin != null && site.p80Min != null && v.durationMin > site.p80Min ? (
+                      <span className="mr-1 font-bold text-violet-800"> · מעל P80</span>
+                    ) : null}
                   </span>
                 </div>
                 <div className="mt-0.5 flex flex-wrap gap-2 text-muted-foreground">

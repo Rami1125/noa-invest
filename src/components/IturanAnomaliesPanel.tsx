@@ -1,6 +1,6 @@
 /**
- * שלב ב׳ — מרכז חריגות תפעולי (איתוראן)
- * שהיות מעל סף, פתיחות מנוף, PTO פתוח, תעודות לא משויכות + ניווט
+ * שלבים ב׳+ד׳ — מרכז חריגות + השוואת שהייה לצי/P80
+ * שהיות, פתיחות מנוף, PTO פתוח, תעודות לא משויכות + ניווט
  */
 import { Link } from "@tanstack/react-router";
 import { Card } from "@/components/ui/card";
@@ -60,6 +60,14 @@ export type LongStayRow = {
   band: ReturnType<typeof dwellBand>;
   tier: string;
   ptoMin: number | null;
+  kindLabel?: string;
+  fleetRangeLabel?: string;
+  siteP80?: number | null;
+  verdict?: string;
+  verdictLabel?: string;
+  summaryHe?: string;
+  overFleetMin?: number;
+  overSiteP80Min?: number;
 };
 
 export type AnomaliesData = {
@@ -73,6 +81,8 @@ export type AnomaliesData = {
   }>;
   longStayCount: number;
   severeCount: number;
+  aboveFleetCount: number;
+  aboveSiteP80Count: number;
 };
 
 type Props = {
@@ -85,7 +95,26 @@ export function IturanAnomaliesPanel({ anomalies, onOpenSitesTab }: Props) {
     <div className="space-y-4">
       <div className="rounded-2xl border border-amber-200/80 bg-amber-50/50 px-4 py-3 text-xs text-amber-950">
         <strong>מרכז חריגות תפעולי</strong> — סף שהייה {STAY_ALERT_MIN} דק׳. צבעים הם סף התראה, לא האשמת נהג.
-        השוואת שהייה ל־P80 בכרטיס האתר (שלב ג׳). ניווט: תעודה · תיק לקוח · כתובת.
+        שלב ד׳: השוואה לטווח צי (מנוף/פלטה) ול־P80 אתר. ניווט: תעודה · לקוח · כתובת.
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-center">
+          <div className="text-[10px] font-semibold text-muted-foreground">שהיות ממושכות</div>
+          <div className="font-display text-xl font-extrabold">{anomalies.longStayCount}</div>
+        </div>
+        <div className="rounded-xl border border-orange-200 bg-orange-50/60 px-3 py-2 text-center">
+          <div className="text-[10px] font-semibold text-orange-900">מעל טווח צי</div>
+          <div className="font-display text-xl font-extrabold text-orange-950">{anomalies.aboveFleetCount}</div>
+        </div>
+        <div className="rounded-xl border border-violet-200 bg-violet-50/60 px-3 py-2 text-center">
+          <div className="text-[10px] font-semibold text-violet-900">מעל P80 אתר</div>
+          <div className="font-display text-xl font-extrabold text-violet-950">{anomalies.aboveSiteP80Count}</div>
+        </div>
+        <div className="rounded-xl border border-red-200 bg-red-50/60 px-3 py-2 text-center">
+          <div className="text-[10px] font-semibold text-red-900">חריגות חמורות</div>
+          <div className="font-display text-xl font-extrabold text-red-950">{anomalies.severeCount}</div>
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -170,11 +199,20 @@ export function IturanAnomaliesPanel({ anomalies, onOpenSitesTab }: Props) {
                     <div className="truncate font-bold">{row.address}</div>
                     <div className="text-xs opacity-80">
                       {row.driver} · {row.plate}
+                      {row.kindLabel ? ` · ${row.kindLabel}` : ""}
                     </div>
+                    {row.summaryHe ? (
+                      <div className="mt-0.5 text-[11px] opacity-90">{row.summaryHe}</div>
+                    ) : null}
                   </div>
                   <div className="text-left">
                     <div className="font-display text-lg font-extrabold">{row.dwell} דק׳</div>
-                    <div className="text-[11px] font-bold">{dwellBandLabel(row.band)}</div>
+                    <div className="text-[11px] font-bold">
+                      {row.verdictLabel || dwellBandLabel(row.band)}
+                    </div>
+                    {row.siteP80 != null ? (
+                      <div className="text-[10px] opacity-80">P80 אתר: {row.siteP80}</div>
+                    ) : null}
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
