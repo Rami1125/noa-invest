@@ -2,9 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   loadCustomerHistory,
   loadCustomerIndex,
-  loadPurchaseMatrixFromArchive,
   loadSiteAtlas,
 } from "./customer-history.server";
+import {
+  loadPurchaseMatrixFromArchive,
+  type PurchaseLine,
+  type PurchaseMatrix,
+} from "./purchase-matrix.server";
 
 export type {
   CustomerSummary,
@@ -18,9 +22,9 @@ export type {
   HCheck,
   Line,
   AtlasSite,
-  PurchaseLine,
-  PurchaseMatrix,
 } from "./customer-history.server";
+
+export type { PurchaseLine, PurchaseMatrix };
 
 /** רשימת כל הלקוחות עם סיכומים (מכל הטאבים) */
 export const listCustomerIndexFn = createServerFn({ method: "GET" }).handler(async () => {
