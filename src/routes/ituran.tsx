@@ -1,6 +1,6 @@
 /**
  * /ituran — מרכז מודיעין לוגיסטי
- * שלב א׳: אמינות · שלב ב׳: חריגות · שלב ג׳: כרטיס אתר
+ * שלבים א׳–ד׳: אמינות · חריגות · כרטיס אתר · השוואת שהייה/P80
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -24,6 +24,11 @@ import {
   IturanAnomaliesPanel, STAY_ALERT_MIN, dwellBand, type AnomaliesData,
 } from "@/components/IturanAnomaliesPanel";
 import { IturanSiteCard } from "@/components/IturanSiteCard";
+import {
+  buildBenchmark,
+  compareDwell,
+  verdictLabelHe,
+} from "@/lib/dwell-intelligence";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -228,18 +233,36 @@ function IturanIntelligencePage() {
   const anomalies: AnomaliesData = useMemo(() => {
     const longStays = matched
       .filter((m) => m.dwell != null && Number.isFinite(m.dwell) && (m.dwell as number) > STAY_ALERT_MIN)
-      .map((m) => ({
-        noteId: m.note.id,
-        customer: m.note.customer || "—",
-        customerNo: m.note.customerNo,
-        address: m.note.siteAddress || m.stop?.address || "—",
-        driver: m.note.driver || m.stop?.driver || "—",
-        plate: m.plate || "—",
-        dwell: m.dwell as number,
-        band: dwellBand(m.dwell),
-        tier: m.tier,
-        ptoMin: m.ptoMin,
-      }))
+      .map((m) => {
+        const address = m.note.siteAddress || m.stop?.address || "—";
+        const bm = buildBenchmark({
+          plate: m.plate,
+          kind: m.kind,
+          address,
+          sites,
+        });
+        const cmp = compareDwell(m.dwell as number, bm);
+        return {
+          noteId: m.note.id,
+          customer: m.note.customer || "—",
+          customerNo: m.note.customerNo,
+          address,
+          driver: m.note.driver || m.stop?.driver || "—",
+          plate: m.plate || "—",
+          dwell: m.dwell as number,
+          band: dwellBand(m.dwell),
+          tier: m.tier,
+          ptoMin: m.ptoMin,
+          kindLabel: bm.kindLabelHe,
+          fleetRangeLabel: `${bm.fleetMin}–${bm.fleetMax}`,
+          siteP80: bm.siteP80,
+          verdict: cmp.verdict,
+          verdictLabel: verdictLabelHe(cmp.verdict),
+          summaryHe: cmp.summaryHe,
+          overFleetMin: cmp.overFleetMin,
+          overSiteP80Min: cmp.overSiteP80Min,
+        };
+      })
       .sort((a, b) => b.dwell - a.dwell);
     const craneOpens = [...ptoSessions]
       .filter((s) => s.openIso && s.orphan !== "missing_open")
@@ -252,9 +275,11 @@ function IturanIntelligencePage() {
       openPto,
       unmatchedNotes,
       longStayCount: longStays.length,
-      severeCount: longStays.filter((s) => s.band === "severe").length,
+      severeCount: longStays.filter((s) => s.verdict === "severe" || s.band === "severe").length,
+      aboveFleetCount: longStays.filter((s) => (s.overFleetMin || 0) > 0).length,
+      aboveSiteP80Count: longStays.filter((s) => (s.overSiteP80Min || 0) > 0).length,
     };
-  }, [matched, ptoSessions]);
+  }, [matched, ptoSessions, sites]);
 
   const dataHealth = useMemo(() => {
     const errs: string[] = [];
@@ -552,7 +577,7 @@ function IturanIntelligencePage() {
         {tab === "sites" && (
           <div className="space-y-3">
             <div className="rounded-2xl border border-sky-200/70 bg-sky-50/40 px-4 py-2.5 text-xs text-sky-950">
-              <strong>שלב ג׳ — כרטיס אתר</strong> · P50/P80 מגיליון · היסטוריית ביקורים · זמני PTO מאומתים · ניווט לתעודה/לקוח.
+              <strong>שלב ג׳+ד׳ — כרטיס אתר</strong> · P50/P80 · טווחי צי · היסטוריה · סימון מעל P80.
             </div>
             <div className="grid gap-4 lg:grid-cols-5">
               <Card className="rounded-2xl border-border p-3 lg:col-span-2">
