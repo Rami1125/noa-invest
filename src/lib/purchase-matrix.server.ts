@@ -1,14 +1,16 @@
 /**
  * מטריצת רכישות מארכיון_תעודות_גליה — מוצרים שלקוחות רכשו
+ * קריאה: Service Account → נפילה ל-CSV ציבורי (gviz) אם אין הרשאה
  */
 import { readGoogleSheetBatch, MASTER_SHEET_ID } from "./smart-dispatch/sheets-integration";
 import { toIso } from "./he-date";
 
 const TAB = "ארכיון_תעודות_גליה";
+const DICT_TAB = "מילון_לוגיסט";
 
 type Row = Record<string, string>;
 const normHeader = (h: string) => h.replace(/[׳'’”\"`]/g, "").replace(/\s+/g, " ").trim();
-const g = (r: Row, name: string) => r[normHeader(name)] ?? "";
+const g = (r: Row, name: string) => r[normHeader(name)] ?? r[name] ?? "";
 
 export type PurchaseLine = {
   sku: string;
@@ -27,6 +29,9 @@ export type PurchaseMatrix = {
   notesWithProducts: number;
   generatedAt: string;
   sourceTab: string;
+  /** service_account | public_csv */
+  readVia: string;
+  dictRows?: number;
 };
 
 type Line = { sku: string; name: string; qty: number; unit: string; kind: "product" | "deposit" | "delivery" };
@@ -34,7 +39,11 @@ type Line = { sku: string; name: string; qty: number; unit: string; kind: "produ
 function parseItems(text: string): Line[] {
   const raw = String(text || "").trim();
   if (!raw) return [];
-  const lines = raw.split(/\n|;/).map((l) => l.trim()).filter(Boolean);
+  const lines = raw
+    .replace(/\r/g, "")
+    .split(/\n|;/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   const out: Line[] = [];
   for (const line of lines) {
     if (line.includes("|")) {
@@ -76,14 +85,8 @@ function parseItems(text: string): Line[] {
   return out;
 }
 
-async function readNotesTab(): Promise<Row[]> {
-  const raw = await readGoogleSheetBatch(MASTER_SHEET_ID, `'${TAB}'!A1:AZ3000`);
-  if (raw === null) {
-    throw new Error(
-      "חשבון שירות Google לא מוגדר בשרת (GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_PRIVATE_KEY)",
-    );
-  }
-  if (raw.length < 2) return [];
+function rowsFromMatrix(raw: unknown[][]): Row[] {
+  if (!raw || raw.length < 2) return [];
   const headers = (raw[0] as unknown[]).map((h) => normHeader(String(h ?? "")));
   return raw
     .slice(1)
@@ -97,9 +100,63 @@ async function readNotesTab(): Promise<Row[]> {
     .filter((o) => Object.values(o).some(Boolean));
 }
 
+/** CSV ציבורי — עובד גם בלי Service Account (הגיליון פתוח לקריאה) */
+async function readTabPublicCsv(sheetName: string): Promise<Row[]> {
+  const url =
+    `https://docs.google.com/spreadsheets/d/${MASTER_SHEET_ID}/gviz/tq` +
+    `?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+  const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(25_000) });
+  if (!res.ok) throw new Error(`public_csv_http_${res.status}`);
+  const text = await res.text();
+  if (!text.trim() || text.startsWith("<!")) throw new Error("public_csv_html");
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cur = "";
+  let inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else inQ = false;
+      } else cur += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === ",") {
+      row.push(cur);
+      cur = "";
+    } else if (ch === "\n") {
+      row.push(cur);
+      rows.push(row);
+      row = [];
+      cur = "";
+    } else if (ch !== "\r") cur += ch;
+  }
+  if (cur || row.length) {
+    row.push(cur);
+    rows.push(row);
+  }
+  return rowsFromMatrix(rows as unknown as unknown[][]);
+}
+
+async function readNotesTab(): Promise<{ rows: Row[]; via: string }> {
+  try {
+    const raw = await readGoogleSheetBatch(MASTER_SHEET_ID, `'${TAB}'!A1:AZ3000`);
+    if (raw && raw.length >= 2) {
+      const rows = rowsFromMatrix(raw as unknown as unknown[][]);
+      if (rows.length > 0) return { rows, via: "service_account" };
+    }
+  } catch (e) {
+    console.warn("[purchase-matrix] service_account failed:", e instanceof Error ? e.message : e);
+  }
+  const rows = await readTabPublicCsv(TAB);
+  return { rows, via: "public_csv" };
+}
+
 /** שולף מוצרים שלקוחות רכשו מתוך ארכיון_תעודות_גליה */
 export async function loadPurchaseMatrixFromArchive(): Promise<PurchaseMatrix> {
-  const rows = await readNotesTab();
+  const { rows, via } = await readNotesTab();
   const lines: PurchaseLine[] = [];
   const seenNotes = new Set<string>();
   let notesWithProducts = 0;
@@ -107,12 +164,13 @@ export async function loadPurchaseMatrixFromArchive(): Promise<PurchaseMatrix> {
   for (const r of rows) {
     const id =
       g(r, "מס' תעודת משלוח") ||
+      g(r, "מס תעודת משלוח") ||
       g(r, "מספר תעודה") ||
       g(r, "מספר ת.מ");
     if (!id || seenNotes.has(id)) continue;
     seenNotes.add(id);
 
-    const customerNo = g(r, "מס' לקוח") || g(r, "מספר לקוח");
+    const customerNo = g(r, "מס' לקוח") || g(r, "מס לקוח") || g(r, "מספר לקוח");
     const customerName = g(r, "שם לקוח");
     const dateIso = toIso(
       g(r, "תאריך תעודה") || g(r, "תאריך אספקה") || g(r, "תאריך"),
@@ -121,6 +179,7 @@ export async function loadPurchaseMatrixFromArchive(): Promise<PurchaseMatrix> {
     const itemsText =
       g(r, "פריטים") ||
       g(r, "פירוט מוצרים ומק\"טים") ||
+      g(r, "פירוט מוצרים ומקטים") ||
       g(r, "סחורה מפורטת") ||
       g(r, "פירוט מוצרים") ||
       g(r, "items");
@@ -142,11 +201,21 @@ export async function loadPurchaseMatrixFromArchive(): Promise<PurchaseMatrix> {
     }
   }
 
+  let dictRows = 0;
+  try {
+    const dict = await readTabPublicCsv(DICT_TAB);
+    dictRows = dict.length;
+  } catch {
+    /* optional */
+  }
+
   return {
     lines,
     noteCount: seenNotes.size,
     notesWithProducts,
     generatedAt: new Date().toISOString(),
     sourceTab: TAB,
+    readVia: via,
+    dictRows,
   };
 }
