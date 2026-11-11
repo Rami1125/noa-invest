@@ -77,7 +77,7 @@ export type AnomaliesData = {
 
 type Props = {
   anomalies: AnomaliesData;
-  onOpenSitesTab: () => void;
+  onOpenSitesTab: (address?: string) => void;
 };
 
 export function IturanAnomaliesPanel({ anomalies, onOpenSitesTab }: Props) {
@@ -85,7 +85,7 @@ export function IturanAnomaliesPanel({ anomalies, onOpenSitesTab }: Props) {
     <div className="space-y-4">
       <div className="rounded-2xl border border-amber-200/80 bg-amber-50/50 px-4 py-3 text-xs text-amber-950">
         <strong>מרכז חריגות תפעולי</strong> — סף שהייה {STAY_ALERT_MIN} דק׳. צבעים הם סף התראה, לא האשמת נהג.
-        השוואה ל־P80/סוג רכב תתווסף בשלב ג׳. ניווט: תעודה · תיק לקוח · כתובת.
+        השוואת שהייה ל־P80 בכרטיס האתר (שלב ג׳). ניווט: תעודה · תיק לקוח · כתובת.
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -137,7 +137,7 @@ export function IturanAnomaliesPanel({ anomalies, onOpenSitesTab }: Props) {
                     )}
                     <button
                       type="button"
-                      onClick={onOpenSitesTab}
+                      onClick={() => onOpenSitesTab(s.address || undefined)}
                       className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-white/50 px-2 py-1 text-[11px] font-semibold hover:bg-white"
                     >
                       היסטוריית אתר
@@ -196,6 +196,13 @@ export function IturanAnomaliesPanel({ anomalies, onOpenSitesTab }: Props) {
                   ) : (
                     <span className="text-[11px] opacity-80">{row.customer}</span>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => onOpenSitesTab(row.address || undefined)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-white/50 px-2 py-1 text-[11px] font-semibold hover:bg-white"
+                  >
+                    היסטוריית אתר
+                  </button>
                 </div>
               </div>
             ))}
