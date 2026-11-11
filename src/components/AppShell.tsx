@@ -27,7 +27,6 @@ import noa from "@/assets/noa.jpg";
 import { PWAInstallButton } from "./PWAInstallButton";
 import { useTheme } from "@/hooks/use-theme";
 
-import { playDispatchChime } from "@/lib/audio-alerts";
 import { toast } from "sonner";
 import {
   Sheet,
@@ -82,6 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const moreActive = MOBILE_MORE.some((m) => active(m.to));
 
+  /** רטט רק אחרי מחוות משתמש (לחיצה על ניווט) — לא בטעינה */
   const triggerHaptic = () => {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
@@ -97,7 +97,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       toast.message("מערכת נועה מוכנה", {
         description: `סטטוס נטען · ${new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}`,
       });
-      void playDispatchChime(0.8);
+      // אין playDispatchChime בטעינה — Chrome חוסם AudioContext בלי gesture
     }, 600);
     return () => window.clearTimeout(timer);
   }, []);
