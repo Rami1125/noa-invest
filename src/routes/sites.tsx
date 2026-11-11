@@ -22,10 +22,15 @@ import {
   X,
   Filter,
   CheckCircle2,
+  AlertTriangle,
+  Hourglass,
+  Gauge,
+  Info,
+  Flame,
 } from "lucide-react";
 
 export const Route = createFileRoute("/sites")({
-  head: () => ({ meta: [{ title: "אתרי אספקה והיסטוריית ביקורים — ח. סבן" }] }),
+  head: () => ({ meta: [{ title: "אתרי אספקה, זמני פריקה וצווארי בקבוק — ח. סבן" }] }),
   component: SitesPage,
 });
 
@@ -58,24 +63,57 @@ function getSiteRegion(city: string): Region {
 }
 
 /**
- * יצירת קוד HTML עצמאי להצגת מפת Leaflet אינטראקטיבית עם סיכות מרובות ופופאפים
+ * קביעה האם אתר מוגדר כמעכב/בעייתי לסידור
+ * אתר מעכב: P80 >= 35 דקות, או מקסימום >= 45 דקות, או חציון >= 30 דקות
+ */
+function isSiteDelayBottleneck(site: AtlasSite): boolean {
+  const p80 = site.p80Min ?? 0;
+  const max = site.maxMin ?? 0;
+  const med = site.medianMin ?? 0;
+  return p80 >= 35 || max >= 45 || med >= 30;
+}
+
+/**
+ * חישוב זמן פריקה צפוי משוקלל לסידור (בדקות)
+ */
+function getExpectedUnloadingMinutes(site: AtlasSite): number {
+  if (site.p80Min != null && site.p80Min > 0) {
+    return Math.round(site.p80Min);
+  }
+  if (site.medianMin != null && site.medianMin > 0) {
+    return Math.round(site.medianMin * 1.2);
+  }
+  return 30; // ברירת מחדל בטוחה לפריקת מנוף
+}
+
+/**
+ * יצירת קוד HTML עצמאי להצגת מפת Leaflet אינטראקטיבית עם הדגשת צבע לאתרים מעכבים
  */
 function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): string {
   const validSites = sites.filter((s) => s.latitude != null && s.longitude != null);
   const sitesJson = JSON.stringify(
-    validSites.map((s) => ({
-      key: s.siteKey || `${s.city}|${s.address}`,
-      lat: s.latitude,
-      lon: s.longitude,
-      customerName: s.customerName || "אתר אספקה",
-      customerNo: s.customerNo || "",
-      address: s.address || "",
-      city: s.city || "",
-      visits: s.visits || 0,
-      ptoOpens: s.ptoOpens || 0,
-      ptoMin: s.ptoTotalMin || 0,
-      isSelected: (s.siteKey || `${s.city}|${s.address}`) === selectedKey,
-    })),
+    validSites.map((s) => {
+      const isDelay = isSiteDelayBottleneck(s);
+      const expectedMin = getExpectedUnloadingMinutes(s);
+      return {
+        key: s.siteKey || `${s.city}|${s.address}`,
+        lat: s.latitude,
+        lon: s.longitude,
+        customerName: s.customerName || "אתר אספקה",
+        customerNo: s.customerNo || "",
+        address: s.address || "",
+        city: s.city || "",
+        visits: s.visits || 0,
+        ptoOpens: s.ptoOpens || 0,
+        ptoMin: s.ptoTotalMin || 0,
+        medianMin: s.medianMin,
+        p80Min: s.p80Min,
+        maxMin: s.maxMin,
+        isDelay,
+        expectedMin,
+        isSelected: (s.siteKey || `${s.city}|${s.address}`) === selectedKey,
+      };
+    }),
   );
 
   return `<!DOCTYPE html>
@@ -88,40 +126,51 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
   <style>
     html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
     .custom-pin {
-      background: #047857;
       border: 2px solid #ffffff;
       color: white;
-      font-weight: bold;
+      font-weight: 800;
       border-radius: 50%;
-      width: 24px;
-      height: 24px;
+      width: 26px;
+      height: 26px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 11px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      box-shadow: 0 2px 7px rgba(0,0,0,0.35);
       cursor: pointer;
-      transition: transform 0.2s, background 0.2s;
+      transition: transform 0.25s, box-shadow 0.25s;
+    }
+    .custom-pin.normal {
+      background: #059669; /* ירוק תקין */
+    }
+    .custom-pin.delay {
+      background: #dc2626 !important; /* אדום בוהק לאתר מעכב */
+      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4), 0 3px 8px rgba(0,0,0,0.4);
+      animation: pulse-ring 2.5s infinite;
+    }
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
+      70% { box-shadow: 0 0 0 9px rgba(220, 38, 38, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
     }
     .custom-pin.selected {
-      background: #dc2626 !important;
-      transform: scale(1.35);
+      background: #7c3aed !important; /* סגול לאתר שנבחר כעת */
+      transform: scale(1.45);
       z-index: 1000 !important;
-      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4), 0 4px 10px rgba(0,0,0,0.4);
+      box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.5), 0 5px 12px rgba(0,0,0,0.45);
     }
     .custom-pin:hover {
-      transform: scale(1.25);
-      background: #065f46;
+      transform: scale(1.3);
     }
     .leaflet-popup-content-wrapper {
-      border-radius: 14px;
-      box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.22);
       direction: rtl;
       text-align: right;
-      padding: 4px;
+      padding: 6px;
     }
     .popup-title {
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 800;
       color: #0f172a;
       margin-bottom: 2px;
@@ -135,19 +184,46 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
       font-size: 12px;
       font-weight: 600;
       color: #334155;
-      margin: 4px 0;
-      border-top: 1px solid #e2e8f0;
+      margin: 6px 0;
+      border-top: 1px solid #f1f5f9;
       padding-top: 4px;
     }
-    .popup-stats {
+    .popup-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
       font-size: 11px;
-      color: #047857;
-      font-weight: 700;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+    }
+    .popup-badge.delay {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+    .popup-badge.normal {
       background: #ecfdf5;
-      padding: 3px 6px;
-      border-radius: 6px;
-      display: inline-block;
-      margin-top: 2px;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+    }
+    .popup-eta-box {
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 10px;
+      padding: 6px 8px;
+      margin-top: 6px;
+    }
+    .popup-eta-label {
+      font-size: 11px;
+      color: #475569;
+      font-weight: bold;
+    }
+    .popup-eta-val {
+      font-size: 14px;
+      font-weight: 900;
+      color: #0f172a;
     }
   </style>
 </head>
@@ -173,23 +249,38 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
       bounds.extend(latLng);
 
       const el = document.createElement('div');
-      el.className = 'custom-pin' + (s.isSelected ? ' selected' : '');
-      el.innerHTML = s.visits > 9 ? '9+' : (s.visits || '📍');
+      const pinClass = s.isSelected ? 'selected' : (s.isDelay ? 'delay' : 'normal');
+      el.className = 'custom-pin ' + pinClass;
+      el.innerHTML = s.isDelay ? '⚠️' : (s.visits > 9 ? '9+' : (s.visits || '📍'));
+      el.title = s.customerName + ' — זמן צפוי: ' + s.expectedMin + ' דק׳';
 
       const icon = L.divIcon({
         className: 'marker-wrap',
         html: el,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
         popupAnchor: [0, -14],
       });
 
+      const badgeHtml = s.isDelay
+        ? '<div class="popup-badge delay">⚠️ אתר מעכב / צוואר בקבוק (P80: ' + (s.p80Min || s.medianMin) + ' דק\')</div>'
+        : '<div class="popup-badge normal">✓ אתר שגרתי ותקין (חציון: ' + (s.medianMin || 20) + ' דק\')</div>';
+
       const popupHtml = \`
         <div>
+          \${badgeHtml}
           <div class="popup-title">\${s.customerName}</div>
           \${s.customerNo ? \`<div class="popup-sub">מספר לקוח: #\${s.customerNo}</div>\` : ''}
           <div class="popup-addr">📍 \${s.address} (\${s.city})</div>
-          <div class="popup-stats">🚚 \${s.visits} ביקורים \${s.ptoOpens ? \`· 🏗️ \${s.ptoOpens} מנוף (\${s.ptoMin} דק')\` : ''}</div>
+          
+          <div class="popup-eta-box">
+            <div class="popup-eta-label">⏱️ זמן פריקה צפוי לסידור:</div>
+            <div class="popup-eta-val">\${s.expectedMin} דקות \${s.p80Min ? \`(תכנון P80: \${s.p80Min} דק')\` : ''}</div>
+          </div>
+
+          <div style="font-size: 11px; color: #475569; margin-top: 6px;">
+            🚚 \${s.visits} ביקורים בהיסטוריה \${s.ptoOpens ? \`· 🏗️ \${s.ptoOpens} סשנים של מנוף PTO (\${s.ptoMin} דק')\` : ''}
+          </div>
         </div>
       \`;
 
@@ -221,6 +312,7 @@ function SitesPage() {
   const [selectedRegion, setSelectedRegion] = useState<Region>("all");
   const [activeCityFilter, setActiveCityFilter] = useState<string | null>(null);
   const [activeCustomerFilter, setActiveCustomerFilter] = useState<string | null>(null);
+  const [delayOnlyFilter, setDelayOnlyFilter] = useState(false);
 
   const q = useQuery({
     queryKey: ["site-atlas"],
@@ -232,22 +324,32 @@ function SitesPage() {
 
   const data = q.data;
 
-  // סינון דינמי לפי אזור, עיר, לקוח ומילות חיפוש
+  // ספירת אתרים מעכבים
+  const delayCountTotal = useMemo(() => {
+    return (data?.sites || []).filter(isSiteDelayBottleneck).length;
+  }, [data]);
+
+  // סינון דינמי לפי אזור, עיר, לקוח, חריגי זמן, ומילות חיפוש
   const filteredList = useMemo(() => {
     if (!data?.sites) return [];
     let list = data.sites;
 
-    // 1. סינון אזורי (צפון / השרון / דרום / מרכז)
+    // 1. סינון אתרים מעכבים בלבד
+    if (delayOnlyFilter) {
+      list = list.filter(isSiteDelayBottleneck);
+    }
+
+    // 2. סינון אזורי (צפון / השרון / דרום / מרכז)
     if (selectedRegion !== "all") {
       list = list.filter((s) => getSiteRegion(s.city) === selectedRegion);
     }
 
-    // 2. סינון לפי עיר נבחרת בלחיצה על כפתור עיר
+    // 3. סינון לפי עיר נבחרת
     if (activeCityFilter) {
       list = list.filter((s) => s.city.trim() === activeCityFilter.trim());
     }
 
-    // 3. סינון לפי לקוח נבחר בלחיצה על כפתור לקוח
+    // 4. סינון לפי לקוח נבחר
     if (activeCustomerFilter) {
       list = list.filter(
         (s) =>
@@ -256,7 +358,7 @@ function SitesPage() {
       );
     }
 
-    // 4. חיפוש חופשי
+    // 5. חיפוש חופשי
     const term = search.trim().toLowerCase();
     if (term) {
       list = list.filter((site) =>
@@ -267,7 +369,7 @@ function SitesPage() {
     }
 
     return list;
-  }, [data, selectedRegion, activeCityFilter, activeCustomerFilter, search]);
+  }, [data, delayOnlyFilter, selectedRegion, activeCityFilter, activeCustomerFilter, search]);
 
   const selectedSite = useMemo(() => {
     return (
@@ -285,6 +387,7 @@ function SitesPage() {
     setSelectedRegion("all");
     setActiveCityFilter(null);
     setActiveCustomerFilter(null);
+    setDelayOnlyFilter(false);
     setSearch("");
   }, []);
 
@@ -305,14 +408,18 @@ function SitesPage() {
     );
   }, [filteredList, selectedSite]);
 
+  // נתוני זמן צפוי וצוואר בקבוק לאתר הנבחר
+  const selectedExpectedMin = selectedSite ? getExpectedUnloadingMinutes(selectedSite) : 30;
+  const selectedIsDelay = selectedSite ? isSiteDelayBottleneck(selectedSite) : false;
+
   return (
     <>
       <PageHeader
-        title="אתרי אספקה"
+        title="אתרי אספקה וצווארי בקבוק"
         subtitle={
           data
-            ? `${data.sites.length} כתובות · ${mappedCount} סיכות מוצגות על המפה`
-            : "היסטוריית ביקורים מהגיליון"
+            ? `${data.sites.length} כתובות · ${mappedCount} סיכות מפה · ${delayCountTotal} אתרים מעכבים`
+            : "היסטוריית ביקורים וסשנים PTO מהגיליון"
         }
         action={
           <button
@@ -334,12 +441,12 @@ function SitesPage() {
           <div className="pointer-events-none absolute -left-20 -top-20 h-56 w-56 rounded-full bg-primary/15 blur-3xl" />
           <div className="relative flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-bold text-primary">תמונת מצב היסטורית</p>
+              <p className="text-xs font-bold text-primary">תמונת מצב היסטורית מוצלבת</p>
               <h1 className="mt-1 font-display text-2xl font-extrabold md:text-3xl">
-                כתובות, לקוחות וביקורים
+                כתובות, לקוחות וזמני פריקה
               </h1>
               <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                נתונים מצטברים מטאבי אתרי הלקוחות והיסטוריית הביקורים. כולל ספירת פתיחות מנוף (PTO) לפי כתובת כשקיים בגיליון.
+                הצלבת נתונים מטאבי 'אתרי_לקוחות', 'היסטוריית_ביקורים' ו-'סשנים_PTO'. אתרים בעלי שהייה ממושכת מודגשים באדום כצווארי בקבוק לסידור העבודה.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -351,22 +458,27 @@ function SitesPage() {
               />
               <Metric
                 icon={Timer}
-                label="פתיחות מנוף"
+                label="סשנים PTO"
                 value={data?.sites.reduce((n, s) => n + (s.ptoOpens || 0), 0) ?? "—"}
               />
-              <Metric icon={Layers} label="נקודות מפה" value={mappedCount} />
+              <Metric
+                icon={AlertTriangle}
+                label="אתרים מעכבים"
+                value={delayCountTotal}
+                highlight={delayCountTotal > 0}
+              />
             </div>
           </div>
 
-          {/* כפתורי סינון אזורים דינמיים: כל האזורים / השרון / מרכז / צפון / דרום */}
+          {/* כפתורי סינון אזורים + כפתור מיוחד לאתרים מעכבים */}
           <div className="relative mt-5 border-t border-border/60 pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                <Compass className="h-4 w-4 text-emerald-600" /> סנן לפי אזור גיאוגרפי:
-              </span>
-              <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="flex items-center gap-1 text-xs font-bold text-foreground ml-2">
+                  <Compass className="h-4 w-4 text-emerald-600" /> סנן אזור:
+                </span>
                 {(["all", "sharon", "center", "north", "south"] as Region[]).map((reg) => {
-                  const isActive = selectedRegion === reg;
+                  const isActive = selectedRegion === reg && !delayOnlyFilter;
                   const countInRegion =
                     reg === "all"
                       ? data?.sites.length ?? 0
@@ -379,6 +491,7 @@ function SitesPage() {
                       onClick={() => {
                         setSelectedRegion(reg);
                         setActiveCityFilter(null);
+                        setDelayOnlyFilter(false);
                       }}
                       className={cn(
                         "inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition shadow-sm",
@@ -400,6 +513,24 @@ function SitesPage() {
                   );
                 })}
               </div>
+
+              {/* כפתור פילטר ייעודי לאתרים מעכבים בלבד */}
+              <button
+                type="button"
+                onClick={() => setDelayOnlyFilter((prev) => !prev)}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-xl border px-3.5 py-1.5 text-xs font-extrabold transition shadow-sm",
+                  delayOnlyFilter
+                    ? "border-red-600 bg-red-600 text-white shadow-red-600/30 ring-2 ring-red-400"
+                    : "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300 hover:bg-red-500/20",
+                )}
+              >
+                <Flame className="h-4 w-4 text-red-600 dark:text-red-400" />
+                <span>⚠️ אתרים מעכבים בלבד</span>
+                <span className="rounded-md bg-red-700/20 px-1.5 py-0.5 text-[10px] tabular-nums font-mono">
+                  {delayCountTotal}
+                </span>
+              </button>
             </div>
           </div>
         </section>
@@ -418,55 +549,162 @@ function SitesPage() {
             role="status"
             className="rounded-2xl border bg-card p-8 text-center text-sm text-muted-foreground"
           >
-            טוען כתובות, לקוחות והיסטוריית ביקורים…
+            טוען כתובות, זמני פריקה וסשנים של מנוף PTO…
           </div>
         )}
 
         {data && (
           <>
             {/* סרגל סינון פעיל ואיפוס */}
-            {(selectedRegion !== "all" || activeCityFilter || activeCustomerFilter || search) && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-900 dark:text-emerald-100">
+            {(selectedRegion !== "all" || activeCityFilter || activeCustomerFilter || delayOnlyFilter || search) && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-950 dark:text-amber-100">
                 <div className="flex flex-wrap items-center gap-2">
                   <Filter className="h-4 w-4" />
                   <span>סינון פעיל:</span>
+                  {delayOnlyFilter && (
+                    <span className="rounded-lg bg-red-600 text-white px-2 py-0.5 font-bold">
+                      ⚠️ אתרים מעכבים בלבד
+                    </span>
+                  )}
                   {selectedRegion !== "all" && (
-                    <span className="rounded-lg bg-emerald-500/20 px-2 py-0.5">
+                    <span className="rounded-lg bg-amber-500/20 px-2 py-0.5">
                       אזור: {REGION_LABELS[selectedRegion]}
                     </span>
                   )}
                   {activeCityFilter && (
-                    <span className="rounded-lg bg-emerald-500/20 px-2 py-0.5">
+                    <span className="rounded-lg bg-amber-500/20 px-2 py-0.5">
                       עיר: {activeCityFilter}
                     </span>
                   )}
                   {activeCustomerFilter && (
-                    <span className="rounded-lg bg-emerald-500/20 px-2 py-0.5">
+                    <span className="rounded-lg bg-amber-500/20 px-2 py-0.5">
                       לקוח: {activeCustomerFilter}
                     </span>
                   )}
                   {search && (
-                    <span className="rounded-lg bg-emerald-500/20 px-2 py-0.5">
+                    <span className="rounded-lg bg-amber-500/20 px-2 py-0.5">
                       חיפוש: "{search}"
                     </span>
                   )}
-                  <span className="font-bold text-emerald-700 dark:text-emerald-300">
-                    ({filteredList.length} אתרים וסיכות מוצגים)
+                  <span className="font-bold text-amber-800 dark:text-amber-200">
+                    ({filteredList.length} אתרים מוצגים)
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={resetAllFilters}
-                  className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-card px-2.5 py-1 text-xs font-bold text-foreground hover:bg-muted"
+                  className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-card px-2.5 py-1 text-xs font-bold text-foreground hover:bg-muted"
                 >
-                  <X className="h-3.5 w-3.5" /> אפס הכל
+                  <X className="h-3.5 w-3.5" /> אפס סינון
                 </button>
               </div>
             )}
 
+            {/* כרטיס זמן צפוי לפריקה של האתר הנבחר (מודגש ומרכזי) */}
+            {selectedSite && (
+              <section
+                className={cn(
+                  "relative overflow-hidden rounded-2xl border p-4 shadow-sm transition-all",
+                  selectedIsDelay
+                    ? "border-red-500/50 bg-gradient-to-r from-red-500/15 via-card to-amber-500/10 ring-1 ring-red-500/30"
+                    : "border-emerald-500/40 bg-gradient-to-r from-emerald-500/10 via-card to-primary/5",
+                )}
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-extrabold",
+                          selectedIsDelay
+                            ? "bg-red-600 text-white shadow-sm"
+                            : "bg-emerald-600 text-white",
+                        )}
+                      >
+                        {selectedIsDelay ? (
+                          <>
+                            <AlertTriangle className="h-3.5 w-3.5" /> אתר מעכב / צוואר בקבוק
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-3.5 w-3.5" /> אתר פריקה שגרתי
+                          </>
+                        )}
+                      </span>
+                      <h3 className="font-display text-base font-extrabold text-foreground">
+                        {selectedSite.customerName || "אתר אספקה"}
+                        {selectedSite.customerNo && (
+                          <span className="font-mono text-xs font-semibold text-muted-foreground">
+                            {" "}
+                            (#{selectedSite.customerNo})
+                          </span>
+                        )}
+                      </h3>
+                      <span className="text-xs text-muted-foreground font-semibold">
+                        📍 {selectedSite.address} · {selectedSite.city}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      {selectedIsDelay
+                        ? "⚠️ אתר זה מתאפיין בזמני פריקה והנפה ממושכים. מומלץ לתזמן מרווח ביטחון מתאים בסידור העבודה של ראמי."
+                        : "✓ אתר בעל זמני פריקה יציבים וסדירים לפי נתוני היסטוריית הביקורים."}
+                    </p>
+                  </div>
+
+                  {/* מדדי זמנים מוצלבים: חציון, P80, מקסימום, וזמן צפוי מומלץ */}
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <div
+                      className={cn(
+                        "rounded-xl border px-3 py-2 text-center shadow-sm",
+                        selectedIsDelay
+                          ? "border-red-500/40 bg-red-500/10 text-red-950 dark:text-red-100"
+                          : "border-emerald-500/30 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100",
+                      )}
+                    >
+                      <div className="text-[10px] font-bold text-muted-foreground">
+                        ⏱️ זמן צפוי לסידור
+                      </div>
+                      <div className="font-display text-lg font-black tabular-nums">
+                        {selectedExpectedMin} דק׳
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-card/80 px-2.5 py-2 text-center">
+                      <div className="text-[10px] text-muted-foreground">חציון (P50)</div>
+                      <div className="font-bold tabular-nums">
+                        {selectedSite.medianMin != null ? `${selectedSite.medianMin} דק׳` : "—"}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-card/80 px-2.5 py-2 text-center">
+                      <div className="text-[10px] text-muted-foreground">תכנון בטוח (P80)</div>
+                      <div className="font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                        {selectedSite.p80Min != null ? `${selectedSite.p80Min} דק׳` : "—"}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-card/80 px-2.5 py-2 text-center">
+                      <div className="text-[10px] text-muted-foreground">מקסימום היסטורי</div>
+                      <div className="font-bold tabular-nums text-red-700 dark:text-red-300">
+                        {selectedSite.maxMin != null ? `${selectedSite.maxMin} דק׳` : "—"}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-card/80 px-2.5 py-2 text-center">
+                      <div className="text-[10px] text-muted-foreground">סשנים מנוף PTO</div>
+                      <div className="font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                        {selectedSite.ptoOpens || 0} ({selectedSite.ptoTotalMin || 0} דק׳)
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
             {/* גריד ראשי: מפת סיכות מרובות משמאל + פאנלים לחיצים מימין */}
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(18rem,0.85fr)]">
-              {/* סקשן המפה האינטראקטיבית */}
+              {/* סקשן המפה האינטראקטיבית עם הדגשת סיכות אדומות לאתרים מעכבים */}
               <section
                 className="flex flex-col overflow-hidden rounded-3xl border border-border/70 bg-card shadow-card"
                 aria-label="מפת אתרי אספקה וסיכות לקוחות"
@@ -475,15 +713,23 @@ function SitesPage() {
                   <div>
                     <h2 className="flex items-center gap-2 font-display font-bold">
                       <MapPin className="h-4 w-4 text-emerald-600" />
-                      מפת סיכות לקוחות ואתרים
+                      מפת אתרים וסיכות לקוחות
                       <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
-                        {mappedCount} סיכות פעילות
+                        {mappedCount} סיכות מוצגות
                       </span>
                     </h2>
-                    <p className="text-xs text-muted-foreground">
-                      לחיצה על סיכה מציגה שם לקוח, מספר לקוח, כתובת, ביקורים וזמני מנוף
-                    </p>
+                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-0.5">
+                      <span className="flex items-center gap-1">
+                        <span className="h-2.5 w-2.5 rounded-full bg-red-600 inline-block" />
+                        אתר מעכב (P80 גבוה)
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="h-2.5 w-2.5 rounded-full bg-emerald-600 inline-block" />
+                        אתר תקין
+                      </span>
+                    </div>
                   </div>
+
                   {selectedSite && selectedSite.latitude != null && (
                     <a
                       className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -500,7 +746,7 @@ function SitesPage() {
                 {/* iframe המפה האינטראקטיבית עם Leaflet ו-OpenStreetMap */}
                 <div className="relative min-h-[380px] flex-1 bg-muted/20">
                   <iframe
-                    key={`${selectedRegion}-${activeCityFilter}-${activeCustomerFilter}-${filteredList.length}-${selectedSite?.siteKey}`}
+                    key={`${selectedRegion}-${activeCityFilter}-${activeCustomerFilter}-${delayOnlyFilter}-${filteredList.length}-${selectedSite?.siteKey}`}
                     title="מפת אתרי אספקה וסיכות לקוחות"
                     srcDoc={mapHtml}
                     className="h-full min-h-[380px] w-full border-0 lg:min-h-[440px]"
@@ -508,37 +754,6 @@ function SitesPage() {
                     sandbox="allow-scripts allow-popups allow-same-origin"
                   />
                 </div>
-
-                {/* סרגל האתר הנבחר בתחתית המפה */}
-                {selectedSite && (
-                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t border-border/60 bg-muted/30 px-4 py-3 text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold">
-                        📍
-                      </span>
-                      <div>
-                        <span className="font-bold text-foreground">
-                          {selectedSite.customerName || "אתר אספקה"}
-                        </span>
-                        {selectedSite.customerNo && (
-                          <span className="text-muted-foreground"> (#{selectedSite.customerNo})</span>
-                        )}
-                        <span className="mx-1.5 text-muted-foreground">·</span>
-                        <span className="font-semibold text-muted-foreground">
-                          {selectedSite.address} ({selectedSite.city})
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 font-semibold text-muted-foreground">
-                      <span>🚚 {selectedSite.visits} ביקורים</span>
-                      {(selectedSite.ptoOpens || 0) > 0 && (
-                        <span className="text-emerald-700 dark:text-emerald-300">
-                          🏗️ {selectedSite.ptoOpens} פתיחות מנוף ({selectedSite.ptoTotalMin || 0} דק')
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
               </section>
 
               {/* סרגל צדדי: ערים מובילות ולקוחות מובילים עם כפתורים לחיצים דינמיים */}
@@ -567,7 +782,7 @@ function SitesPage() {
               </aside>
             </div>
 
-            {/* ספר הכתובות וההיסטוריה המלאה */}
+            {/* ספר הכתובות וההיסטוריה המלאה עם חיווי צבע מובלט */}
             <section className="space-y-3 pt-2">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
@@ -575,7 +790,7 @@ function SitesPage() {
                     ספר כתובות והיסטוריית אתרים
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    בחירת אתר ממקדת את הסיכה על המפה; פתיחת שורה מציגה ביקורים, תעודות ופתיחות מנוף.
+                    אתרים מעכבים מודגשים ברקע אדום. לחיצה מציגה חלון פריקה צפוי וסשנים של מנוף PTO.
                   </p>
                 </div>
                 <label className="relative block w-full sm:max-w-sm">
@@ -596,13 +811,18 @@ function SitesPage() {
                   const expanded = expandedKey === key;
                   const isSelected =
                     (selectedSite?.siteKey || `${selectedSite?.city}|${selectedSite?.address}`) === key;
+                  const isDelay = isSiteDelayBottleneck(site);
+                  const expectedMin = getExpectedUnloadingMinutes(site);
 
                   return (
                     <article
                       key={`${key}-${i}`}
                       className={cn(
-                        "overflow-hidden rounded-2xl border bg-card shadow-sm transition-all hover:shadow-md",
-                        isSelected && "border-emerald-500/60 ring-1 ring-emerald-500/30",
+                        "overflow-hidden rounded-2xl border transition-all hover:shadow-md",
+                        isDelay
+                          ? "border-red-500/40 bg-red-500/5 dark:bg-red-950/10"
+                          : "border-border bg-card",
+                        isSelected && "border-primary ring-2 ring-primary/30 shadow-md",
                       )}
                     >
                       <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
@@ -610,7 +830,6 @@ function SitesPage() {
                           type="button"
                           onClick={() => {
                             setSelectedKey(key);
-                            // גלילה חלקה למפה במובייל
                             if (window.innerWidth < 1024) {
                               window.scrollTo({ top: 120, behavior: "smooth" });
                             }
@@ -621,20 +840,27 @@ function SitesPage() {
                           <span
                             className={cn(
                               "grid h-10 w-10 shrink-0 place-items-center rounded-xl font-bold transition",
-                              isSelected
-                                ? "bg-emerald-600 text-white shadow-sm"
-                                : "bg-primary/10 text-primary",
+                              isDelay
+                                ? "bg-red-600 text-white shadow-sm"
+                                : "bg-emerald-600/10 text-emerald-700 dark:text-emerald-300",
                             )}
                           >
-                            <MapPin className="h-5 w-5" />
+                            {isDelay ? <AlertTriangle className="h-5 w-5" /> : <MapPin className="h-5 w-5" />}
                           </span>
                           <span className="min-w-0">
-                            <span className="block truncate font-bold text-foreground">
-                              {site.customerName || "אתר אספקה"}
-                              {site.customerNo && (
-                                <span className="text-xs font-normal text-muted-foreground">
-                                  {" "}
-                                  (#{site.customerNo})
+                            <span className="flex items-center gap-2">
+                              <span className="block truncate font-bold text-foreground">
+                                {site.customerName || "אתר אספקה"}
+                                {site.customerNo && (
+                                  <span className="text-xs font-normal text-muted-foreground">
+                                    {" "}
+                                    (#{site.customerNo})
+                                  </span>
+                                )}
+                              </span>
+                              {isDelay && (
+                                <span className="rounded-md bg-red-600/15 px-1.5 py-0.5 text-[10px] font-black text-red-700 dark:text-red-300">
+                                  מעכב
                                 </span>
                               )}
                             </span>
@@ -645,27 +871,22 @@ function SitesPage() {
                         </button>
 
                         <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                          <SmallStat icon={Truck} label="ביקורים" value={site.visits} />
+                          <SmallStat
+                            icon={Gauge}
+                            label="זמן צפוי"
+                            value={`${expectedMin} דק׳`}
+                            highlight={isDelay}
+                          />
                           <SmallStat
                             icon={Timer}
-                            label="מנוף"
-                            value={
-                              (site.ptoOpens || 0) > 0
-                                ? `${site.ptoOpens} · ${site.ptoTotalMin || 0} דק׳`
-                                : site.medianMin != null
-                                ? `${site.medianMin} דק׳`
-                                : "—"
-                            }
+                            label="P80 בטוח"
+                            value={site.p80Min != null ? `${site.p80Min} דק׳` : "—"}
                           />
+                          <SmallStat icon={Truck} label="ביקורים" value={site.visits} />
                           <SmallStat
                             icon={CalendarDays}
                             label="ביקור אחרון"
                             value={site.lastIso ? fmtShort(site.lastIso) : "—"}
-                          />
-                          <SmallStat
-                            icon={Users}
-                            label="אזור"
-                            value={REGION_LABELS[getSiteRegion(site.city)]}
                           />
                         </div>
 
@@ -681,27 +902,37 @@ function SitesPage() {
 
                       {expanded && (
                         <div className="border-t border-border/60 bg-muted/20 p-4">
-                          {site.customerNo && (
-                            <Link
-                              to="/customers/$id"
-                              params={{ id: site.customerNo }}
-                              className="inline-flex min-h-10 items-center gap-2 rounded-xl border bg-card px-3 text-xs font-bold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                            >
-                              <Users className="h-4 w-4" />
-                              פתיחת תיק הלקוח במערכת
-                            </Link>
+                          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                            {site.customerNo && (
+                              <Link
+                                to="/customers/$id"
+                                params={{ id: site.customerNo }}
+                                className="inline-flex min-h-10 items-center gap-2 rounded-xl border bg-card px-3 text-xs font-bold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                              >
+                                <Users className="h-4 w-4" />
+                                פתיחת תיק הלקוח במערכת
+                              </Link>
+                            )}
+
+                            {/* פירוט נתוני זמנים מוצלבים */}
+                            <div className="flex flex-wrap items-center gap-3 text-xs font-semibold">
+                              <span>חציון: {site.medianMin ?? "—"} דק׳</span>
+                              <span>P80: {site.p80Min ?? "—"} דק׳</span>
+                              <span>מקסימום: {site.maxMin ?? "—"} דק׳</span>
+                              <span className="text-emerald-700 dark:text-emerald-300">
+                                סה״כ מנוף PTO: {site.ptoTotalMin || 0} דק׳ ({site.ptoOpens || 0} סשנים)
+                              </span>
+                            </div>
+                          </div>
+
+                          {isDelay && (
+                            <div className="mb-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-950 dark:text-red-200">
+                              <strong>⚠️ התרעת עיכוב לסידור:</strong> אתר זה דורש בממוצע מעל{" "}
+                              {expectedMin} דקות פריקה. מומלץ לא לשבץ אותו כעצירה ראשונה בנגלות בוקר צפופות.
+                            </div>
                           )}
 
-                          {(site.ptoOpens > 0 || site.ptoTotalMin > 0) && (
-                            <p className="mb-3 mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-800 dark:text-emerald-200">
-                              מנוף בכתובת: {site.ptoOpens} פתיחות מנוף · סה״כ {site.ptoTotalMin} דק׳ עבודת PTO
-                              {site.customerNo
-                                ? ` · לקוח #${site.customerNo}${site.customerName ? ` (${site.customerName})` : ""}`
-                                : ""}
-                            </p>
-                          )}
-
-                          <h3 className="mb-2 mt-4 text-sm font-bold">היסטוריית ביקורים ותעודות</h3>
+                          <h3 className="mb-2 mt-4 text-sm font-bold">היסטוריית ביקורים מוצלבת מול PTO</h3>
                           {site.visitHistory.length ? (
                             <ol className="space-y-2">
                               {site.visitHistory.map((visit, index) => (
@@ -714,10 +945,10 @@ function SitesPage() {
                                       {visit.dateIso ? fmtShort(visit.dateIso) : "תאריך לא זמין"}
                                     </span>
                                     <span className="text-muted-foreground">
-                                      {visit.driver}
-                                      {visit.truck ? ` · ${visit.truck}` : ""}
-                                      {visit.durationMin != null ? ` · ${visit.durationMin} דק׳` : ""}
-                                      {visit.ptoMin != null ? ` · 🏗️ מנוף ${visit.ptoMin} דק׳` : ""}
+                                      נהג: {visit.driver}
+                                      {visit.truck ? ` · משאית ${visit.truck}` : ""}
+                                      {visit.durationMin != null ? ` · משך שהייה: ${visit.durationMin} דק׳` : ""}
+                                      {visit.ptoMin != null ? ` · 🏗️ מנוף נטו: ${visit.ptoMin} דק׳` : ""}
                                     </span>
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-2">
@@ -741,11 +972,6 @@ function SitesPage() {
                                         הזמנה {id}
                                       </Link>
                                     ))}
-                                    {!visit.notes.length && !visit.orders.length && (
-                                      <span className="text-xs text-muted-foreground">
-                                        רשומת ביקור ללא שיוך תעודה
-                                      </span>
-                                    )}
                                   </div>
                                 </li>
                               ))}
@@ -763,7 +989,7 @@ function SitesPage() {
 
                 {!filteredList.length && (
                   <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                    אין כתובות או סיכות תואמות לסינון הנוכחי. לחץ על "אפס הכל" להצגת כל האתרים.
+                    אין כתובות או סיכות תואמות לסינון הנוכחי. לחץ על "אפס סינון" להצגת כל האתרים.
                   </p>
                 )}
               </div>
@@ -779,15 +1005,24 @@ function Metric({
   icon: Icon,
   label,
   value,
+  highlight,
 }: {
   icon: typeof MapPin;
   label: string;
   value: string | number;
+  highlight?: boolean;
 }) {
   return (
-    <div className="min-w-[5.5rem] rounded-2xl border border-border/50 bg-card/70 px-3 py-2.5">
+    <div
+      className={cn(
+        "min-w-[5.5rem] rounded-2xl border px-3 py-2.5 transition",
+        highlight
+          ? "border-red-500/50 bg-red-500/10 text-red-950 dark:text-red-100 font-extrabold"
+          : "border-border/50 bg-card/70",
+      )}
+    >
       <div className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
-        <Icon className="h-3.5 w-3.5" />
+        <Icon className="h-3.5 w-3.5 text-foreground" />
         {label}
       </div>
       <div className="mt-1 text-xl font-extrabold tabular-nums">{value}</div>
@@ -799,23 +1034,29 @@ function SmallStat({
   icon: Icon,
   label,
   value,
+  highlight,
 }: {
   icon: typeof MapPin;
   label: string;
   value: string | number;
+  highlight?: boolean;
 }) {
   return (
-    <span className="flex items-center gap-1.5 rounded-lg bg-muted/70 px-2 py-2">
-      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span className="text-muted-foreground">{label}:</span>
-      <strong className="truncate">{value}</strong>
+    <span
+      className={cn(
+        "flex items-center gap-1.5 rounded-lg px-2 py-2 transition",
+        highlight
+          ? "bg-red-500/15 text-red-950 dark:text-red-200 font-extrabold"
+          : "bg-muted/70 text-muted-foreground",
+      )}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0 text-foreground" />
+      <span>{label}:</span>
+      <strong className="truncate text-foreground">{value}</strong>
     </span>
   );
 }
 
-/**
- * פאנל דירוג אינטראקטיבי: שורות לחיצות עם אפקט בחירה וסינון מיידי של המפה
- */
 function RankPanelClickable({
   title,
   subtitle,
