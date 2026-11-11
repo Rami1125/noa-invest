@@ -124,7 +124,7 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .custom-pin {
       border: 2px solid #ffffff;
       color: white;
@@ -141,10 +141,10 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
       transition: transform 0.25s, box-shadow 0.25s;
     }
     .custom-pin.normal {
-      background: #059669; /* ירוק תקין */
+      background: #059669;
     }
     .custom-pin.delay {
-      background: #dc2626 !important; /* אדום בוהק לאתר מעכב */
+      background: #dc2626 !important;
       box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4), 0 3px 8px rgba(0,0,0,0.4);
       animation: pulse-ring 2.5s infinite;
     }
@@ -154,7 +154,7 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
       100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
     }
     .custom-pin.selected {
-      background: #7c3aed !important; /* סגול לאתר שנבחר כעת */
+      background: #7c3aed !important;
       transform: scale(1.45);
       z-index: 1000 !important;
       box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.5), 0 5px 12px rgba(0,0,0,0.45);
@@ -231,31 +231,31 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
   <div id="map"></div>
   <script>
     const sites = ${sitesJson};
-    const defaultCenter = [32.1583, 34.8911]; // הוד השרון
-    const map = L.map('map', { zoomControl: true }).setView(defaultCenter, 11);
+    const defaultCenter = [32.1583, 34.8911];
+    const map = L.map("map", { zoomControl: true }).setView(defaultCenter, 11);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 18,
-      attribution: '© OpenStreetMap'
+      attribution: "© OpenStreetMap"
     }).addTo(map);
 
     const markers = [];
     const bounds = L.latLngBounds();
     let selectedMarker = null;
 
-    sites.forEach((s) => {
+    sites.forEach(function(s) {
       if (s.lat == null || s.lon == null) return;
       const latLng = [s.lat, s.lon];
       bounds.extend(latLng);
 
-      const el = document.createElement('div');
-      const pinClass = s.isSelected ? 'selected' : (s.isDelay ? 'delay' : 'normal');
-      el.className = 'custom-pin ' + pinClass;
-      el.innerHTML = s.isDelay ? '⚠️' : (s.visits > 9 ? '9+' : (s.visits || '📍'));
-      el.title = s.customerName + ' — זמן צפוי: ' + s.expectedMin + ' דק׳';
+      const el = document.createElement("div");
+      const pinClass = s.isSelected ? "selected" : (s.isDelay ? "delay" : "normal");
+      el.className = "custom-pin " + pinClass;
+      el.innerHTML = s.isDelay ? "⚠️" : (s.visits > 9 ? "9+" : (s.visits || "📍"));
+      el.title = s.customerName + " — זמן צפוי: " + s.expectedMin + " דקות";
 
       const icon = L.divIcon({
-        className: 'marker-wrap',
+        className: "marker-wrap",
         html: el,
         iconSize: [26, 26],
         iconAnchor: [13, 13],
@@ -263,26 +263,26 @@ function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string): s
       });
 
       const badgeHtml = s.isDelay
-        ? '<div class="popup-badge delay">⚠️ אתר מעכב / צוואר בקבוק (P80: ' + (s.p80Min || s.medianMin) + ' דק\')</div>'
-        : '<div class="popup-badge normal">✓ אתר שגרתי ותקין (חציון: ' + (s.medianMin || 20) + ' דק\')</div>';
+        ? '<div class="popup-badge delay">⚠️ אתר מעכב / צוואר בקבוק (P80: ' + (s.p80Min || s.medianMin || 35) + ' דקות)</div>'
+        : '<div class="popup-badge normal">✓ אתר שגרתי ותקין (חציון: ' + (s.medianMin || 20) + ' דקות)</div>';
 
-      const popupHtml = \`
-        <div>
-          \${badgeHtml}
-          <div class="popup-title">\${s.customerName}</div>
-          \${s.customerNo ? \`<div class="popup-sub">מספר לקוח: #\${s.customerNo}</div>\` : ''}
-          <div class="popup-addr">📍 \${s.address} (\${s.city})</div>
-          
-          <div class="popup-eta-box">
-            <div class="popup-eta-label">⏱️ זמן פריקה צפוי לסידור:</div>
-            <div class="popup-eta-val">\${s.expectedMin} דקות \${s.p80Min ? \`(תכנון P80: \${s.p80Min} דק')\` : ''}</div>
-          </div>
+      const ptoText = s.ptoOpens ? " · 🏗️ " + s.ptoOpens + " סשנים של מנוף PTO (" + s.ptoMin + " דקות)" : "";
+      const p80Text = s.p80Min ? " (תכנון P80: " + s.p80Min + " דקות)" : "";
+      const subCust = s.customerNo ? '<div class="popup-sub">מספר לקוח: #' + s.customerNo + '</div>' : "";
 
-          <div style="font-size: 11px; color: #475569; margin-top: 6px;">
-            🚚 \${s.visits} ביקורים בהיסטוריה \${s.ptoOpens ? \`· 🏗️ \${s.ptoOpens} סשנים של מנוף PTO (\${s.ptoMin} דק')\` : ''}
-          </div>
-        </div>
-      \`;
+      const popupHtml = "<div>" +
+        badgeHtml +
+        '<div class="popup-title">' + s.customerName + '</div>' +
+        subCust +
+        '<div class="popup-addr">📍 ' + s.address + ' (' + s.city + ')</div>' +
+        '<div class="popup-eta-box">' +
+          '<div class="popup-eta-label">⏱️ זמן פריקה צפוי לסידור:</div>' +
+          '<div class="popup-eta-val">' + s.expectedMin + ' דקות' + p80Text + '</div>' +
+        '</div>' +
+        '<div style="font-size: 11px; color: #475569; margin-top: 6px;">' +
+          "🚚 " + s.visits + " ביקורים בהיסטוריה" + ptoText +
+        "</div>" +
+      "</div>";
 
       const marker = L.marker(latLng, { icon: icon }).addTo(map);
       marker.bindPopup(popupHtml);
@@ -751,7 +751,7 @@ function SitesPage() {
                     srcDoc={mapHtml}
                     className="h-full min-h-[380px] w-full border-0 lg:min-h-[440px]"
                     loading="lazy"
-                    sandbox="allow-scripts allow-popups allow-same-origin"
+                    sandbox="allow-scripts allow-popups"
                   />
                 </div>
               </section>
