@@ -1,10 +1,20 @@
-/** מחולל HTML למפת Leaflet + CARTO Basemaps */
+/**
+ * מחולל מפת Leaflet מקצועית — סיכות, שכבות, המלצת זמני פריקה
+ * סף ויזואלי: מעל 20 דק׳ שהייה/פריקה
+ */
 import type { AtlasSite } from "@/lib/customer-history.functions";
 
-/**
- * קביעה האם אתר מוגדר כמעכב/בעייתי לסידור
- * אתר מעכב: P80 >= 35 דקות, או מקסימום >= 45 דקות, או חציון >= 30 דקות
- */
+/** סף משתמש: מעל 20 דק׳ = הדגשה ויזואלית */
+export const SLOW_UNLOAD_MIN = 20;
+
+export function isSlowUnload(site: AtlasSite): boolean {
+  const med = site.medianMin ?? 0;
+  const p80 = site.p80Min ?? 0;
+  const max = site.maxMin ?? 0;
+  return med >= SLOW_UNLOAD_MIN || p80 >= SLOW_UNLOAD_MIN || max >= 40;
+}
+
+/** צוואר בקבוק חמור יותר */
 export function isSiteDelayBottleneck(site: AtlasSite): boolean {
   const p80 = site.p80Min ?? 0;
   const max = site.maxMin ?? 0;
@@ -12,28 +22,105 @@ export function isSiteDelayBottleneck(site: AtlasSite): boolean {
   return p80 >= 35 || max >= 45 || med >= 30;
 }
 
-/**
- * חישוב זמן פריקה צפוי משוקלל לסידור (בדקות)
- */
 export function getExpectedUnloadingMinutes(site: AtlasSite): number {
-  if (site.p80Min != null && site.p80Min > 0) {
-    return Math.round(site.p80Min);
-  }
-  if (site.medianMin != null && site.medianMin > 0) {
-    return Math.round(site.medianMin * 1.2);
-  }
-  return 30;
+  if (site.p80Min != null && site.p80Min > 0) return Math.round(site.p80Min);
+  if (site.medianMin != null && site.medianMin > 0) return Math.round(site.medianMin * 1.2);
+  return 25;
 }
 
-/**
- * יצירת קוד HTML עצמאי להצגת מפת Leaflet אינטראקטיבית עם הדגשת צבע לאתרים מעכבים
- */
-export function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: string, cartoKey?: string): string {
+export type UnloadAdvice = {
+  expectedMin: number;
+  level: "ok" | "watch" | "slow" | "severe";
+  levelHe: string;
+  opinionHe: string;
+  aiRecommendHe: string;
+  planBufferMin: number;
+};
+
+/** שיקול דעת + המלצת AI מבוססת נתוני האתר בלבד (לא המצאה) */
+export function buildUnloadAdvice(site: AtlasSite): UnloadAdvice {
+  const med = site.medianMin;
+  const p80 = site.p80Min;
+  const max = site.maxMin;
+  const visits = site.visits ?? 0;
+  const expectedMin = getExpectedUnloadingMinutes(site);
+  const buffer = Math.max(5, Math.round(expectedMin * 0.15));
+
+  let level: UnloadAdvice["level"] = "ok";
+  if (isSiteDelayBottleneck(site) || (max != null && max >= 60) || expectedMin >= 45) {
+    level = "severe";
+  } else if (isSlowUnload(site) || expectedMin >= SLOW_UNLOAD_MIN) {
+    level = "slow";
+  } else if (expectedMin >= 15) {
+    level = "watch";
+  }
+
+  const levelHe =
+    level === "ok"
+      ? "פריקה שגרתית"
+      : level === "watch"
+        ? "פריקה בינונית"
+        : level === "slow"
+          ? "פריקה ממושכת (מעל 20 דק׳)"
+          : "צוואר בקבוק — תכנון זהיר";
+
+  const parts: string[] = [];
+  if (med != null) parts.push(`חציון ${med} דק׳`);
+  if (p80 != null) parts.push(`P80 ${p80} דק׳`);
+  if (max != null) parts.push(`מקסימום ${max} דק׳`);
+  if (visits > 0) parts.push(`${visits} ביקורים בהיסטוריה`);
+  const statsLine = parts.length ? parts.join(" · ") : "אין מספיק מדידות שהייה לאתר";
+
+  let opinionHe = "";
+  if (level === "ok") {
+    opinionHe = `האתר נראה יציב לפריקה קצרה. ${statsLine}. מתאים לשיבוץ רגיל בלי תוספת זמן מיוחדת.`;
+  } else if (level === "watch") {
+    opinionHe = `זמן פריקה בינוני. ${statsLine}. כדאי לשריין מרווח קטן בין עצירות.`;
+  } else if (level === "slow") {
+    opinionHe = `מעל סף ${SLOW_UNLOAD_MIN} דק׳ — פריקה ממושכת יחסית. ${statsLine}. לא לשבץ צפוף אחרי האתר הזה.`;
+  } else {
+    opinionHe = `האתר מתנהג כצוואר בקבוק. ${statsLine}. עדיפות לתחילת יום או סוף מסלול, עם באפר גדול.`;
+  }
+
+  let aiRecommendHe = "";
+  if (level === "ok") {
+    aiRecommendHe = `המלצת תכנון: שיבצו ${expectedMin} דק׳ פריקה (+${buffer} דק׳ באפר). אין צורך במנוף ייעודי מעבר לרגיל אלא אם יש PTO בהיסטוריה.`;
+  } else if (level === "watch") {
+    aiRecommendHe = `המלצת תכנון: שיבצו ${expectedMin}–${expectedMin + buffer} דק׳. בדקו אם יש מנוף (PTO) בביקורים קודמים לפני דחיסת המסלול.`;
+  } else if (level === "slow") {
+    aiRecommendHe = `המלצת AI: אתר איטי — תכננו ${expectedMin + buffer} דק׳ לפחות ביומן. הימנעו משתי עצירות «כבדות» ברצף. אם יש פתיחות מנוף בהיסטוריה — שיבצו רכב מנוף.`;
+  } else {
+    aiRecommendHe = `המלצת AI: צוואר בקבוק — שריינו ${Math.max(expectedMin + 10, 50)} דק׳, העדיפו שיבוץ מוקדם בבוקר, ואל תשבצו לקוח רגיש־לזמן מיד אחרי. אשרו עם הנהג גישה וחניה לפני היציאה.`;
+  }
+
+  if ((site.ptoOpens ?? 0) > 0) {
+    aiRecommendHe += ` נרשמו ${site.ptoOpens} פתיחות PTO בכתובת (סה״כ ~${Math.round(site.ptoTotalMin || 0)} דק׳ מנוף) — תכננו ציוד מנוף.`;
+  }
+
+  return {
+    expectedMin,
+    level,
+    levelHe,
+    opinionHe,
+    aiRecommendHe,
+    planBufferMin: buffer,
+  };
+}
+
+export type MapPinLayer = "all" | "slow" | "normal";
+
+export function generateInteractiveMapHtml(
+  sites: AtlasSite[],
+  selectedKey?: string,
+  cartoKey?: string,
+  layer: MapPinLayer = "all",
+): string {
   const validSites = sites.filter((s) => s.latitude != null && s.longitude != null);
   const sitesJson = JSON.stringify(
     validSites.map((s) => {
-      const isDelay = isSiteDelayBottleneck(s);
-      const expectedMin = getExpectedUnloadingMinutes(s);
+      const advice = buildUnloadAdvice(s);
+      const slow = isSlowUnload(s);
+      const severe = isSiteDelayBottleneck(s);
       return {
         key: s.siteKey || `${s.city}|${s.address}`,
         lat: s.latitude,
@@ -44,16 +131,24 @@ export function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: str
         city: s.city || "",
         visits: s.visits || 0,
         ptoOpens: s.ptoOpens || 0,
-        ptoMin: s.ptoTotalMin || 0,
+        ptoMin: Math.round(s.ptoTotalMin || 0),
         medianMin: s.medianMin,
         p80Min: s.p80Min,
         maxMin: s.maxMin,
-        isDelay,
-        expectedMin,
+        slow,
+        severe,
+        expectedMin: advice.expectedMin,
+        level: advice.level,
+        levelHe: advice.levelHe,
+        opinionHe: advice.opinionHe,
+        aiRecommendHe: advice.aiRecommendHe,
         isSelected: (s.siteKey || `${s.city}|${s.address}`) === selectedKey,
       };
     }),
   );
+
+  const keyJson = JSON.stringify(cartoKey || "");
+  const layerJson = JSON.stringify(layer || "all");
 
   return `<!DOCTYPE html>
 <html dir="rtl" lang="he">
@@ -63,86 +158,217 @@ export function generateInteractiveMapHtml(sites: AtlasSite[], selectedKey?: str
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #0f172a; font-family: system-ui, sans-serif; }
-    .map-controls-bar { position: absolute; top: 12px; right: 12px; z-index: 1000; display: flex; gap: 6px; background: rgba(255,255,255,0.95); padding: 5px; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
-    .layer-btn { border: none; background: transparent; padding: 6px 12px; border-radius: 10px; font-size: 12px; font-weight: 800; color: #475569; cursor: pointer; }
-    .layer-btn.active { background: #047857; color: #fff; }
-    .custom-pin { border: 2.5px solid #fff; color: white; font-weight: 900; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 11px; box-shadow: 0 3px 9px rgba(0,0,0,0.45); }
-    .custom-pin.normal { background: #059669; }
-    .custom-pin.delay { background: #dc2626 !important; }
-    .custom-pin.selected { background: #7c3aed !important; transform: scale(1.35); }
-    .leaflet-popup-content-wrapper { border-radius: 16px; direction: rtl; text-align: right; padding: 8px; }
-    .popup-title { font-size: 15px; font-weight: 900; color: #0f172a; }
-    .popup-sub { font-size: 11px; color: #64748b; font-weight: 700; }
-    .popup-addr { font-size: 12px; font-weight: 700; color: #334155; margin: 6px 0; }
-    .popup-badge { display: inline-flex; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 8px; margin-bottom: 6px; }
-    .popup-badge.delay { background: #fef2f2; color: #991b1b; }
-    .popup-badge.normal { background: #ecfdf5; color: #065f46; }
-    .popup-eta-box { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 6px 8px; margin-top: 6px; }
-    .popup-eta-val { font-size: 14px; font-weight: 900; color: #0f172a; }
-    .popup-gmaps-link { display: flex; justify-content: center; margin-top: 8px; background: #2563eb; color: #fff !important; text-decoration: none; font-size: 11px; font-weight: 800; padding: 6px 10px; border-radius: 8px; }
+    html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #0f172a;
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif; }
+    .map-controls-bar {
+      position: absolute; top: 12px; right: 12px; z-index: 1000; display: flex; flex-wrap: wrap; gap: 6px;
+      background: rgba(255,255,255,0.96); backdrop-filter: blur(8px); padding: 6px; border-radius: 14px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.22); border: 1px solid #e2e8f0; max-width: calc(100% - 24px);
+    }
+    .layer-btn {
+      border: none; background: transparent; padding: 7px 12px; border-radius: 10px;
+      font-size: 12px; font-weight: 800; color: #475569; cursor: pointer; white-space: nowrap;
+    }
+    .layer-btn:hover { background: #f1f5f9; color: #0f172a; }
+    .layer-btn.active { background: #0f766e; color: #fff; box-shadow: 0 2px 8px rgba(15,118,110,0.35); }
+    .legend {
+      position: absolute; bottom: 16px; right: 12px; z-index: 1000; background: rgba(255,255,255,0.95);
+      border-radius: 12px; padding: 8px 12px; font-size: 11px; font-weight: 700; color: #334155;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15); line-height: 1.6;
+    }
+    .legend span { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 6px; vertical-align: middle; }
+    .pin-wrap { background: transparent; border: none; }
+    .pin {
+      width: 32px; height: 32px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+      border: 2.5px solid #fff; box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pin-inner { transform: rotate(45deg); color: #fff; font-size: 11px; font-weight: 900; line-height: 1; }
+    .pin.ok { background: linear-gradient(145deg, #10b981, #059669); }
+    .pin.watch { background: linear-gradient(145deg, #fbbf24, #d97706); }
+    .pin.slow { background: linear-gradient(145deg, #fb923c, #ea580c); }
+    .pin.severe {
+      background: linear-gradient(145deg, #f87171, #dc2626);
+      box-shadow: 0 0 0 3px rgba(220,38,38,0.35), 0 3px 10px rgba(0,0,0,0.45);
+      animation: pulse 2.2s ease-out infinite;
+    }
+    .pin.selected {
+      background: linear-gradient(145deg, #a78bfa, #7c3aed) !important;
+      transform: rotate(-45deg) scale(1.25);
+      z-index: 500;
+      box-shadow: 0 0 0 4px rgba(124,58,237,0.4), 0 4px 14px rgba(0,0,0,0.5);
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(220,38,38,0.55); }
+      70% { box-shadow: 0 0 0 12px rgba(220,38,38,0); }
+      100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+    }
+    .leaflet-popup-content-wrapper {
+      border-radius: 16px; box-shadow: 0 12px 28px rgba(0,0,0,0.25);
+      direction: rtl; text-align: right; padding: 4px 2px; max-width: 320px;
+    }
+    .leaflet-popup-content { margin: 10px 12px; min-width: 220px; }
+    .p-title { font-size: 15px; font-weight: 900; color: #0f172a; margin: 0 0 2px; }
+    .p-sub { font-size: 11px; color: #64748b; font-weight: 700; }
+    .p-addr { font-size: 12px; font-weight: 700; color: #334155; margin: 8px 0; padding-top: 6px; border-top: 1px solid #f1f5f9; }
+    .p-badge {
+      display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 800;
+      padding: 3px 9px; border-radius: 8px; margin-bottom: 6px;
+    }
+    .p-badge.ok { background: #ecfdf5; color: #065f46; }
+    .p-badge.watch { background: #fffbeb; color: #92400e; }
+    .p-badge.slow { background: #fff7ed; color: #9a3412; }
+    .p-badge.severe { background: #fef2f2; color: #991b1b; }
+    .p-box { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 8px; margin-top: 6px; }
+    .p-box.ai { background: #f5f3ff; border-color: #ddd6fe; }
+    .p-label { font-size: 10px; font-weight: 800; color: #64748b; margin-bottom: 2px; }
+    .p-text { font-size: 12px; font-weight: 600; color: #1e293b; line-height: 1.45; }
+    .p-eta { font-size: 16px; font-weight: 900; color: #0f172a; }
+    .p-link {
+      display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 8px;
+      background: #2563eb; color: #fff !important; text-decoration: none; font-size: 11px;
+      font-weight: 800; padding: 7px 10px; border-radius: 8px;
+    }
   </style>
 </head>
 <body>
   <div class="map-controls-bar">
-    <button id="btn-streets" class="layer-btn active" onclick="switchLayer('streets')">מפת רחובות</button>
-    <button id="btn-satellite" class="layer-btn" onclick="switchLayer('satellite')">תצלום לוויין</button>
+    <button type="button" id="btn-streets" class="layer-btn active" onclick="switchBase('streets')">מפת רחובות</button>
+    <button type="button" id="btn-sat" class="layer-btn" onclick="switchBase('sat')">לוויין</button>
+    <button type="button" id="btn-pins-all" class="layer-btn active" onclick="switchPins('all')">כל הסיכות</button>
+    <button type="button" id="btn-pins-slow" class="layer-btn" onclick="switchPins('slow')">מעל 20 דק׳</button>
+    <button type="button" id="btn-pins-normal" class="layer-btn" onclick="switchPins('normal')">שגרתיים</button>
+  </div>
+  <div class="legend">
+    <div><span style="background:#059669"></span> שגרתי</div>
+    <div><span style="background:#ea580c"></span> מעל 20 דק׳</div>
+    <div><span style="background:#dc2626"></span> צוואר בקבוק</div>
+    <div><span style="background:#7c3aed"></span> נבחר</div>
   </div>
   <div id="map"></div>
   <script>
     const sites = ${sitesJson};
-    const cartoKey = ${JSON.stringify(cartoKey || "")};
+    const cartoKey = ${keyJson};
+    let pinFilter = ${layerJson};
     const map = L.map("map", { zoomControl: false }).setView([32.1583, 34.8911], 11);
-    L.control.zoom({ position: "bottomright" }).addTo(map);
+    L.control.zoom({ position: "bottomleft" }).addTo(map);
+
     const cartoUrl = cartoKey
       ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=" + encodeURIComponent(cartoKey)
       : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-    const streetsLayer = L.tileLayer(cartoUrl, { maxZoom: 19, subdomains: "abcd", attribution: "© CARTO, OSM" }).addTo(map);
-    const satImagery = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "© Esri" });
-    const satLabels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19 });
-    const satelliteGroup = L.layerGroup([satImagery, satLabels]);
-    let currentLayer = "streets";
-    function switchLayer(mode) {
-      if (mode === currentLayer) return;
-      if (mode === "satellite") {
-        map.removeLayer(streetsLayer); map.addLayer(satelliteGroup);
-        document.getElementById("btn-satellite").className = "layer-btn active";
-        document.getElementById("btn-streets").className = "layer-btn";
-        currentLayer = "satellite";
-      } else {
-        map.removeLayer(satelliteGroup); map.addLayer(streetsLayer);
-        document.getElementById("btn-streets").className = "layer-btn active";
-        document.getElementById("btn-satellite").className = "layer-btn";
-        currentLayer = "streets";
+    const streets = L.tileLayer(cartoUrl, {
+      maxZoom: 19, subdomains: "abcd",
+      attribution: "© CARTO · © OpenStreetMap"
+    }).addTo(map);
+    const satImg = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19, attribution: "© Esri" }
+    );
+    const satLbl = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19 }
+    );
+    const sat = L.layerGroup([satImg, satLbl]);
+    let base = "streets";
+    function switchBase(mode) {
+      if (mode === base) return;
+      if (mode === "sat") { map.removeLayer(streets); map.addLayer(sat); }
+      else { map.removeLayer(sat); map.addLayer(streets); }
+      base = mode;
+      document.getElementById("btn-streets").className = "layer-btn" + (mode === "streets" ? " active" : "");
+      document.getElementById("btn-sat").className = "layer-btn" + (mode === "sat" ? " active" : "");
+    }
+
+    const markerLayer = L.layerGroup().addTo(map);
+    const markerByKey = {};
+
+    function pinClass(s) {
+      if (s.isSelected) return "selected";
+      if (s.severe || s.level === "severe") return "severe";
+      if (s.slow || s.level === "slow") return "slow";
+      if (s.level === "watch") return "watch";
+      return "ok";
+    }
+    function pinLabel(s) {
+      if (s.severe) return "!";
+      if (s.expectedMin) return String(Math.min(99, s.expectedMin));
+      return String(s.visits > 9 ? "9+" : (s.visits || "•"));
+    }
+    function passesFilter(s) {
+      if (pinFilter === "slow") return !!(s.slow || s.severe);
+      if (pinFilter === "normal") return !(s.slow || s.severe);
+      return true;
+    }
+    function popupHtml(s) {
+      const badge = '<div class="p-badge ' + s.level + '">' + s.levelHe + '</div>';
+      const cust = s.customerNo
+        ? '<div class="p-sub">לקוח #' + s.customerNo + (s.customerName ? " · " + s.customerName : "") + '</div>'
+        : (s.customerName ? '<div class="p-sub">' + s.customerName + '</div>' : '');
+      const stats = [
+        s.medianMin != null ? "חציון " + s.medianMin + " דק׳" : null,
+        s.p80Min != null ? "P80 " + s.p80Min + " דק׳" : null,
+        s.visits ? s.visits + " ביקורים" : null,
+        s.ptoOpens ? s.ptoOpens + " PTO" : null
+      ].filter(Boolean).join(" · ");
+      const gmaps = "https://www.google.com/maps?q=" + s.lat + "," + s.lon + "&hl=he";
+      return '<div>' + badge +
+        '<div class="p-title">' + (s.customerName || "אתר") + '</div>' + cust +
+        '<div class="p-addr">📍 ' + s.address + (s.city ? " · " + s.city : "") + '</div>' +
+        '<div class="p-box"><div class="p-label">זמן פריקה מתוכנן</div>' +
+        '<div class="p-eta">' + s.expectedMin + ' דק׳</div>' +
+        (stats ? '<div class="p-text" style="margin-top:4px">' + stats + '</div>' : '') + '</div>' +
+        '<div class="p-box"><div class="p-label">שיקול דעת מתי לפרוק</div>' +
+        '<div class="p-text">' + s.opinionHe + '</div></div>' +
+        '<div class="p-box ai"><div class="p-label">המלצת AI לזמני פריקה</div>' +
+        '<div class="p-text">' + s.aiRecommendHe + '</div></div>' +
+        '<a class="p-link" href="' + gmaps + '" target="_blank" rel="noopener">פתח ב-Google Maps</a></div>';
+    }
+
+    function rebuildMarkers() {
+      markerLayer.clearLayers();
+      const bounds = L.latLngBounds([]);
+      let selectedMarker = null;
+      let n = 0;
+      sites.forEach(function(s) {
+        if (s.lat == null || s.lon == null) return;
+        if (!passesFilter(s)) return;
+        n++;
+        const ll = [s.lat, s.lon];
+        bounds.extend(ll);
+        const el = document.createElement("div");
+        el.className = "pin " + pinClass(s);
+        el.innerHTML = '<span class="pin-inner">' + pinLabel(s) + '</span>';
+        const icon = L.divIcon({
+          className: "pin-wrap",
+          html: el,
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+          popupAnchor: [0, -28]
+        });
+        const m = L.marker(ll, { icon: icon, title: s.address });
+        m.bindPopup(popupHtml(s), { maxWidth: 340 });
+        m.addTo(markerLayer);
+        markerByKey[s.key] = m;
+        if (s.isSelected) selectedMarker = m;
+      });
+      if (selectedMarker) {
+        map.setView(selectedMarker.getLatLng(), 15);
+        selectedMarker.openPopup();
+      } else if (n > 0 && bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14 });
       }
     }
-    const bounds = L.latLngBounds();
-    let selectedMarker = null;
-    sites.forEach(function(s) {
-      if (s.lat == null || s.lon == null) return;
-      const latLng = [s.lat, s.lon];
-      bounds.extend(latLng);
-      const el = document.createElement("div");
-      el.className = "custom-pin " + (s.isSelected ? "selected" : (s.isDelay ? "delay" : "normal"));
-      el.innerHTML = s.isDelay ? "!" : (s.visits > 9 ? "9+" : (s.visits || "*"));
-      const icon = L.divIcon({ className: "marker-wrap", html: el, iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -16] });
-      const badgeHtml = s.isDelay
-        ? '<div class="popup-badge delay">אתר מעכב (P80: ' + (s.p80Min || s.medianMin || 35) + ' דק)</div>'
-        : '<div class="popup-badge normal">אתר שגרתי (חציון: ' + (s.medianMin || 20) + ' דק)</div>';
-      const gmapsUrl = "https://www.google.com/maps/@?api=1&map_action=map&center=" + s.lat + "," + s.lon + "&zoom=18&basemap=satellite";
-      const popupHtml = "<div>" + badgeHtml +
-        '<div class="popup-title">' + s.customerName + '</div>' +
-        (s.customerNo ? '<div class="popup-sub">לקוח #' + s.customerNo + '</div>' : '') +
-        '<div class="popup-addr">' + s.address + ' (' + s.city + ')</div>' +
-        '<div class="popup-eta-box"><div class="popup-eta-val">זמן צפוי: ' + s.expectedMin + ' דק</div></div>' +
-        '<div style="font-size:11px;color:#475569;margin-top:6px">' + s.visits + ' ביקורים</div>' +
-        '<a href="' + gmapsUrl + '" target="_blank" class="popup-gmaps-link">Google Maps</a></div>';
-      const marker = L.marker(latLng, { icon: icon }).addTo(map);
-      marker.bindPopup(popupHtml);
-      if (s.isSelected) selectedMarker = marker;
-    });
-    if (selectedMarker) { map.setView(selectedMarker.getLatLng(), 15); selectedMarker.openPopup(); }
-    else if (sites.length > 0 && bounds.isValid()) { map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 }); }
+
+    function switchPins(mode) {
+      pinFilter = mode;
+      ["all","slow","normal"].forEach(function(m) {
+        const el = document.getElementById("btn-pins-" + m);
+        if (el) el.className = "layer-btn" + (m === mode ? " active" : "");
+      });
+      rebuildMarkers();
+    }
+
+    rebuildMarkers();
   </script>
 </body>
 </html>`;
