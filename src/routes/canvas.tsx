@@ -1,7 +1,6 @@
 /**
- * /canvas — קנבס סימון תעודה + חדר נועה (אותו מוח כמו /chat)
- * wave0: validateSearch(noteId), vertical note picker + filter
- * + סריקת כתב-יד × PTO, הדבקת מסקנות, החתם תעודה
+ * /canvas — קנבס סימון תעודה + חדר נועה
+ * מבנה יציב: רשימת תעודות (מובייל+דסקטופ) · עורך · צ׳אט נועה
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
@@ -22,7 +21,7 @@ import {
   gpsUnavailableMessage,
   type BackendMeta,
 } from "@/lib/chat-grounding";
-import { pairPtoEvents, analyzePto, israelTime } from "@/lib/smart-dispatch/pto-pairing";
+import { pairPtoEvents, israelTime } from "@/lib/smart-dispatch/pto-pairing";
 import { analyzeHandwritingAgainstPto, filterPtoForNote } from "@/lib/handwriting-match";
 import type { IturanPtoEvent } from "@/lib/ituran-live";
 import { HandwritingMatchPanel } from "@/components/HandwritingMatchPanel";
@@ -31,7 +30,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   Bot, Sparkles, Send, AlertTriangle, RefreshCw, Loader2,
-  MessageSquare, FileText, Plug, Gauge, Crown, ScanSearch, Stamp, ClipboardCheck,
+  MessageSquare, Crown, ScanSearch, Stamp, ClipboardCheck, FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -59,13 +58,14 @@ function CanvasPageRoute() {
 
   if (isLoading) {
     return (
-      <div className="p-8 text-center text-sm text-muted-foreground" dir="rtl">
-        טוען תעודות מהגיליון...
+      <div className="flex min-h-[50vh] items-center justify-center gap-2 p-8 text-sm text-muted-foreground" dir="rtl">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        טוען תעודות משלוח מהגיליון...
       </div>
     );
   }
 
-  if (error || !notesList) {
+  if (error) {
     return (
       <div className="mx-auto max-w-xl p-6" dir="rtl">
         <Card className="space-y-3 border-red-500/40 bg-red-500/5 p-5">
@@ -75,8 +75,28 @@ function CanvasPageRoute() {
           <p className="text-xs text-muted-foreground">
             {error instanceof Error ? error.message : "שגיאת שרת"}
           </p>
-          <Button size="sm" onClick={() => refetch()} disabled={isFetching}>
+          <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>
             <RefreshCw className={cn("ml-1 h-3.5 w-3.5", isFetching && "animate-spin")} /> נסה שוב
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  const list = Array.isArray(notesList) ? notesList : [];
+
+  if (list.length === 0) {
+    return (
+      <div className="mx-auto max-w-xl p-6" dir="rtl">
+        <Card className="space-y-3 border-amber-500/40 bg-amber-500/5 p-5">
+          <div className="flex items-center gap-2 font-bold text-amber-800">
+            <FileText className="h-5 w-5" /> אין תעודות משלוח להצגה
+          </div>
+          <p className="text-xs text-muted-foreground">
+            השרת החזיר רשימה ריקה. בדקו את טאב ארכיון התעודות / חיבור GAS.
+          </p>
+          <Button size="sm" onClick={() => void refetch()} disabled={isFetching}>
+            <RefreshCw className={cn("ml-1 h-3.5 w-3.5", isFetching && "animate-spin")} /> רענון
           </Button>
         </Card>
       </div>
@@ -85,7 +105,7 @@ function CanvasPageRoute() {
 
   return (
     <CanvasWorkspace
-      notesList={notesList}
+      notesList={list}
       searchNoteId={searchNoteId}
       onRefresh={() => void refetch()}
       isFetching={isFetching}
@@ -116,24 +136,32 @@ function CanvasWorkspace({
   const [filter, setFilter] = useState("");
 
   useEffect(() => {
-    if (searchNoteId) setSelectedId(searchNoteId);
-  }, [searchNoteId]);
+    if (searchNoteId && notesList.some((n) => n.id === searchNoteId)) {
+      setSelectedId(searchNoteId);
+      return;
+    }
+    if (!notesList.some((n) => n.id === selectedId) && notesList[0]) {
+      setSelectedId(notesList[0].id);
+    }
+  }, [searchNoteId, notesList, selectedId]);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return notesList;
     return notesList.filter((n) =>
-      [n.id, n.customer, n.customerNo, n.comaxOrder, n.driver, (n as { siteAddress?: string }).siteAddress]
+      [n.id, n.customer, n.customerNo, n.comaxOrder, n.driver, n.address, (n as { siteAddress?: string }).siteAddress]
+        .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(q),
     );
   }, [notesList, filter]);
 
-  const currentNote = useMemo(
-    () => notesList.find((n) => n.id === selectedId) || notesList[0]!,
-    [notesList, selectedId],
-  );
+  const currentNote = useMemo(() => {
+    return notesList.find((n) => n.id === selectedId) || notesList[0]!;
+  }, [notesList, selectedId]);
+
+  const scanImageFallback = currentNote.scanImage || currentNote.scans?.[0] || undefined;
 
   const { data: scanSrc } = useQuery({
     queryKey: ["scan", currentNote.fileId],
@@ -144,6 +172,8 @@ function CanvasWorkspace({
       return scanToDataUrl(f.mimeType, f.base64);
     },
   });
+
+  const imageSrc = scanSrc || scanImageFallback;
 
   const { data: ptoData, error: ptoError } = useQuery({
     queryKey: ["live-pto-canvas"],
@@ -189,7 +219,7 @@ function CanvasWorkspace({
     {
       id: "welcome",
       sender: "noa",
-      text: "חדר נועה בקנבס — סרקו כתב-יד, הצליבו מול PTO, הדביקו מסקנות על התעודה והחתם אחרי אימות.",
+      text: "חדר נועה בקנבס — בחרו תעודה משמאל, סרקו כתב-יד, הצליבו מול PTO והדביקו מסקנות.",
       timestamp: "",
       statusTag: "מוח חי · canvas",
     },
@@ -222,7 +252,7 @@ function CanvasWorkspace({
         "=== תעודה פעילה בקנבס ===",
         `תעודה: ${n.id} comax=${n.comaxOrder || n.id}`,
         `לקוח: ${n.customer || "—"} (${n.customerNo || "—"})`,
-        `כתובת: ${(n as { siteAddress?: string }).siteAddress || (n as { address?: string }).address || "—"}`,
+        `כתובת: ${(n as { siteAddress?: string }).siteAddress || n.address || "—"}`,
         `נהג: ${n.driver || "—"}`,
         `פקדונות 60002: ${b.delivered}/${b.billed} | 60060: ${p.delivered}/${p.billed}`,
         `מנוף/פריקה: ${(n as { craneNotes?: string; craneTime?: string }).craneNotes || (n as { craneTime?: string }).craneTime || "—"}`,
@@ -308,9 +338,7 @@ function CanvasWorkspace({
 
   const ptoEventsForNote = (): IturanPtoEvent[] => {
     const addr = String(
-      (currentNote as { siteAddress?: string }).siteAddress ||
-        (currentNote as { address?: string }).address ||
-        "",
+      (currentNote as { siteAddress?: string }).siteAddress || currentNote.address || "",
     );
     const mapped: IturanPtoEvent[] = sessions.flatMap(
       (s: {
@@ -370,7 +398,7 @@ function CanvasWorkspace({
       return;
     }
     setPendingNoaText(handAnalysis.stampText);
-    pushNoa("מסקנות נועה מוכנות להדבקה על התעודה (שכבת טקסט ירוקה).", "הדבקה");
+    pushNoa("מסקנות נועה הודבקו על התעודה (שכבת טקסט ירוקה).", "הדבקה");
   };
 
   const requestSignNote = () => {
@@ -471,15 +499,15 @@ function CanvasWorkspace({
 
   return (
     <div className="flex h-[calc(100dvh-65px)] min-h-0 flex-col bg-background" dir="rtl">
-      <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
-        <div className="flex items-center gap-2 text-sm font-bold">
-          <Crown className="h-4 w-4 text-amber-500" />
-          קנבס + חדר נועה
-          <span className="text-xs font-normal text-muted-foreground">
-            ת.מ. #{currentNote.id} · {sessions.length} PTO · {evidenceLabel}
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-bold">
+          <Crown className="h-4 w-4 shrink-0 text-amber-500" />
+          <span className="truncate">קנבס + חדר נועה</span>
+          <span className="hidden truncate text-xs font-normal text-muted-foreground sm:inline">
+            {notesList.length} תעודות · ת.מ. #{currentNote.id} · {sessions.length} PTO
           </span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <Button size="sm" variant="outline" onClick={onRefresh} disabled={isFetching}>
             <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
           </Button>
@@ -492,17 +520,53 @@ function CanvasWorkspace({
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[220px_1fr_340px]">
-        <aside className="hidden min-h-0 flex-col border-l lg:flex">
-          <div className="border-b p-2">
+      {/* מובייל: רשימת תעודות אופקית */}
+      <div className="shrink-0 border-b bg-muted/30 px-2 py-2 lg:hidden">
+        <input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="סינון תעודות..."
+          className="mb-2 w-full rounded-xl border bg-background px-3 py-2 text-xs"
+        />
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {filtered.map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => setSelectedId(n.id)}
+              className={cn(
+                "shrink-0 rounded-xl border px-3 py-2 text-right text-xs transition",
+                n.id === currentNote.id
+                  ? "border-emerald-500/50 bg-emerald-500/15 font-bold"
+                  : "bg-card hover:bg-muted",
+              )}
+            >
+              <div className="font-mono">#{n.id}</div>
+              <div className="max-w-[9rem] truncate text-muted-foreground">{n.customer}</div>
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <span className="text-xs text-muted-foreground">אין תוצאות לסינון</span>
+          )}
+        </div>
+      </div>
+
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)_minmax(300px,360px)]">
+        {/* דסקטופ: רשימה אנכית */}
+        <aside className="hidden min-h-0 flex-col border-l bg-card/40 lg:flex">
+          <div className="shrink-0 border-b p-2">
+            <div className="mb-1 flex items-center justify-between px-1 text-[11px] font-bold text-muted-foreground">
+              <span>תעודות משלוח</span>
+              <span>{notesList.length}</span>
+            </div>
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="סינון תעודות..."
+              placeholder="חיפוש מספר / לקוח / נהג..."
               className="w-full rounded-xl border bg-background px-3 py-2 text-xs"
             />
           </div>
-          <div className="flex-1 space-y-1 overflow-y-auto p-2">
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
             {filtered.map((n) => (
               <button
                 key={n.id}
@@ -511,21 +575,35 @@ function CanvasWorkspace({
                 className={cn(
                   "w-full rounded-xl border px-2.5 py-2 text-right text-xs transition",
                   n.id === currentNote.id
-                    ? "border-emerald-500/40 bg-emerald-500/10 font-bold"
+                    ? "border-emerald-500/40 bg-emerald-500/10 font-bold shadow-sm"
                     : "hover:bg-muted",
                 )}
               >
-                <div className="font-mono">#{n.id}</div>
-                <div className="truncate text-muted-foreground">{n.customer}</div>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-mono">#{n.id}</span>
+                  {n.date && (
+                    <span className="text-[10px] font-normal text-muted-foreground">{n.date}</span>
+                  )}
+                </div>
+                <div className="truncate text-muted-foreground">{n.customer || "—"}</div>
               </button>
             ))}
+            {filtered.length === 0 && (
+              <p className="p-3 text-center text-xs text-muted-foreground">אין תוצאות</p>
+            )}
           </div>
         </aside>
 
         <div className="min-h-0 overflow-auto p-2">
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border bg-card px-3 py-2 text-xs lg:hidden">
+            <FileText className="h-3.5 w-3.5 text-primary" />
+            <span className="font-bold">#{currentNote.id}</span>
+            <span className="truncate text-muted-foreground">{currentNote.customer}</span>
+          </div>
           <DeliveryCanvasEditor
+            key={currentNote.id}
             note={currentNote}
-            imageSrc={scanSrc || currentNote.scans?.[0]}
+            imageSrc={imageSrc}
             stampSrc="/sing-rami.jpg"
             secondaryStampSrc={noaStamp}
             pendingNoaText={pendingNoaText}
@@ -533,15 +611,15 @@ function CanvasWorkspace({
           />
         </div>
 
-        <div className="flex min-h-0 flex-col border-r">
+        <div className="flex min-h-[280px] flex-col border-r lg:min-h-0">
           <Card className="flex min-h-0 flex-1 flex-col rounded-none border-0 shadow-none">
-            <div className="flex items-center gap-2 border-b px-3 py-2 text-sm font-bold">
+            <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2 text-sm font-bold">
               <Bot className="h-4 w-4 text-emerald-600" />
               נועה · הצלבה וחתימה
               <Sparkles className="h-3.5 w-3.5 text-amber-500" />
             </div>
 
-            <div className="flex flex-wrap gap-1.5 border-b border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+            <div className="flex shrink-0 flex-wrap gap-1.5 border-b border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
               <button
                 type="button"
                 disabled={isThinking}
@@ -556,7 +634,7 @@ function CanvasWorkspace({
                 onClick={() => pasteConclusionsOnNote()}
                 className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-card px-2.5 py-1 text-[10px] font-bold disabled:opacity-50"
               >
-                <Stamp className="h-3 w-3" /> הדבק מסקנות על התעודה
+                <Stamp className="h-3 w-3" /> הדבק מסקנות
               </button>
               <button
                 type="button"
@@ -569,12 +647,12 @@ function CanvasWorkspace({
             </div>
 
             {handAnalysis && (
-              <div className="max-h-48 overflow-auto border-b px-3 py-2">
+              <div className="max-h-40 shrink-0 overflow-auto border-b px-3 py-2">
                 <HandwritingMatchPanel analysis={handAnalysis} compact />
               </div>
             )}
 
-            <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
               {chatMessages.map((m) => (
                 <div
                   key={m.id}
@@ -601,7 +679,7 @@ function CanvasWorkspace({
             </div>
 
             <form
-              className="flex gap-2 border-t p-3"
+              className="flex shrink-0 gap-2 border-t p-3"
               onSubmit={(e) => {
                 e.preventDefault();
                 void handleSend();
