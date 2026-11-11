@@ -44,13 +44,16 @@ export const Route = createFileRoute("/canvas")({
   component: CanvasPageRoute,
 });
 
-const PTO_LOOKBACK_MS = 7 * 24 * 3600 * 1000;
+// חלון סריקת PTO מורחב ל-60 יום כדי לאפשר טעינה רציפה של כל חודש נובמבר ואוקטובר ללא חסם תאריכים
+const PTO_LOOKBACK_MS = 60 * 24 * 3600 * 1000;
 
 function CanvasPageRoute() {
   const { data: notesList, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["live-notes-canvas"],
     queryFn: fetchLiveNotes,
-    staleTime: 30_000,
+    staleTime: 5_000,
+    refetchInterval: 15_000, // רענון אוטומטי חי כל 15 שניות מול הגיליון ללא חסמים
+    refetchOnWindowFocus: true,
     retry: 1,
   });
 
@@ -175,11 +178,13 @@ function CanvasWorkspace({
 
   const imageSrc = scanSrc || scanImageFallback;
 
-  const { data: ptoData, error: ptoError } = useQuery({
+  const { data: ptoData, error: ptoError, refetch: refetchPto, isFetching: isFetchingPto } = useQuery({
     queryKey: ["live-pto-canvas"],
     queryFn: () =>
       listPtoFn({ data: { since: new Date(Date.now() - PTO_LOOKBACK_MS).toISOString() } }),
-    staleTime: 60_000,
+    staleTime: 5_000,
+    refetchInterval: 15_000, // עדכון שוטף של אירועי PTO כל 15 שניות
+    refetchOnWindowFocus: true,
     retry: 1,
   });
 
@@ -508,8 +513,17 @@ function CanvasWorkspace({
           </span>
         </div>
         <div className="flex shrink-0 gap-2">
-          <Button size="sm" variant="outline" onClick={onRefresh} disabled={isFetching}>
-            <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              void onRefresh();
+              void refetchPto();
+            }}
+            disabled={isFetching || isFetchingPto}
+            title="רענון מלא און-ליין מהגיליון ומאיתוראן"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", (isFetching || isFetchingPto) && "animate-spin")} />
           </Button>
           <Link
             to="/chat"
