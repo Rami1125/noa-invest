@@ -110,7 +110,7 @@ function SitesPage() {
         title="אתרי אספקה וצווארי בקבוק"
         subtitle={
           data
-            ? `${data.sites.length} כתובות · ${mappedCount} סיכות · ${delayCountTotal} מעכבים · מפה: ${cartoKey ? "CARTO" : "CARTO ללא מפתח"}`
+            ? `${data.sites.length} כתובות · ${mappedCount} סיכות · ${slowCount} מעל 20 דק׳ · מפה: ${cartoKey ? "CARTO" : "CARTO ללא מפתח"}`
             : "טוען…"
         }
         action={
@@ -206,7 +206,7 @@ function SitesPage() {
               <h2 className="font-display font-bold">מפת כתובות</h2>
               <p className="text-xs text-muted-foreground">
                 {cartoKey ? "CARTO Basemaps Voyager · מפתח פעיל" : "CARTO ללא מפתח — הגדר CARTO_BASEMAPS_API_KEY ב־Vercel"}
-                {" · "}לחיצה על סיכה: כתובת, לקוח, שיקול דעת והמלצת AI
+                {" · "}שלב ה׳: סיכות בשכבה מעל המפה · לחיצה: כתובת, לקוח, שיקול דעת והמלצת AI
               </p>
             </div>
             {selectedSite?.latitude != null && (
@@ -222,7 +222,8 @@ function SitesPage() {
             )}
           </div>
           <iframe
-            title="מפת אתרי אספקה"
+            key={`map-${pinLayer}-${selectedSite?.siteKey || selectedSite?.address || "none"}-${mappedCount}`}
+            title="מפת אתרי אספקה — שכבת סיכות מעל basemap"
             srcDoc={mapHtml}
             className="h-[400px] w-full border-0 md:h-[480px]"
             sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
