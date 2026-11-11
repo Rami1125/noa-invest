@@ -1,7 +1,6 @@
 /**
  * Saban Flow — Ituran client library (v2.1)
- * הצלבת תעודות מול עצירות GPS · מקורות: גיליון / XLSX / SAMPLE
- * Stage A: אין ברירות מחדל 08:00/08:30 לזמנים חסרים.
+ * Stage A: no invented 08:00/08:30 defaults.
  */
 
 import type { AuditStatus, DeliveryNote } from "./data";
@@ -84,9 +83,6 @@ export function normalizePlate(raw?: string): string {
   const digits = String(raw).replace(/\D/g, "");
   if (digits.length >= 7) {
     const d = digits.slice(0, 8);
-    if (d.length === 8) {
-      return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
-    }
     return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
   }
   return String(raw).trim();
@@ -116,10 +112,7 @@ export function extractStreet(siteStr: string): string {
       ?.replace(/רח׳|רח'|שד׳|שד'/g, "")
       .replace(/"/g, "")
       .trim() || "";
-  return part
-    .replace(/\d+[א-ת]?/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return part.replace(/\d+[א-ת]?/g, "").replace(/\s+/g, " ").trim();
 }
 
 export function formatNoteDate(d: unknown): string {
@@ -178,14 +171,11 @@ export function crossMatch(
 
   let best: GpsStop | undefined;
   let bestScore = 0;
-
   for (const s of candidates) {
     const sAddr = String(s.address || "");
     let sc = 0;
     if (street && sAddr.includes(street)) sc += 4;
-    else {
-      sc += streetTokens.filter((t) => sAddr.includes(t)).length;
-    }
+    else sc += streetTokens.filter((t) => sAddr.includes(t)).length;
     if (sc > bestScore) {
       bestScore = sc;
       best = s;
@@ -198,7 +188,6 @@ export function crossMatch(
 
   const arriveStr = String(best.arrive || "").trim();
   const departStr = String(best.depart || "").trim();
-  // אין ברירת מחדל 08:00/08:30 — בלי זמן אמיתי לא מחשבים חריגה
   let dwell: number | null =
     best.durationMin != null && Number.isFinite(Number(best.durationMin))
       ? Number(best.durationMin)
@@ -217,16 +206,10 @@ export function crossMatch(
     };
   }
   const [min, max] = DWELL_RULES[kind] || DWELL_RULES.crane;
-
   if (dwell >= min - 5 && dwell <= max + 15) {
     return { status: "ok", dwell, stop: best, label: "🟢 אומת באיתוראן" };
   }
-  return {
-    status: "warn",
-    dwell,
-    stop: best,
-    label: "⚠️ סטיית זמן חריגה",
-  };
+  return { status: "warn", dwell, stop: best, label: "⚠️ סטיית זמן חריגה" };
 }
 
 export function visitsToStops(visits: IturanVisit[]): GpsStop[] {
@@ -254,12 +237,9 @@ export function rowsToStops(rows: Record<string, unknown>[]): GpsStop[] {
     const m = v.match(/\d{1,2}:\d{2}/)?.[0];
     return m ? m.padStart(5, "0") : "";
   };
-
   return rows
     .map((r) => {
-      const plate = normalizePlate(
-        pick(r, ["תג זיהוי", "רכב", "רישוי", "plate", "Plate"]),
-      );
+      const plate = normalizePlate(pick(r, ["תג זיהוי", "רכב", "רישוי", "plate", "Plate"]));
       const endRaw = pick(r, ["זמן סיום עצירה", "סיום", "depart", "Departure"]);
       if (!plate || !endRaw) return null;
       const startRaw = pick(r, ["זמן הודעה", "כניסה", "הגעה", "arrive", "Arrival"]);
@@ -299,46 +279,14 @@ export function groupStopsByDriver(stops: GpsStop[]): Record<DriverId, GpsStop[]
 }
 
 export const SAMPLE_STOPS: GpsStop[] = [
-  {
-    plate: "615-41-002",
-    address: "ירמיהו 11 רמת גן",
-    arrive: "07:50",
-    depart: "08:22",
-    driver: "חכמת",
-  },
-  {
-    plate: "615-41-002",
-    address: "נח 3 תל אביב",
-    arrive: "06:10",
-    depart: "06:45",
-    driver: "חכמת",
-  },
-  {
-    plate: "615-41-002",
-    address: "הורדים 19 סביון",
-    arrive: "08:28",
-    depart: "08:58",
-    driver: "חכמת",
-  },
-  {
-    plate: "615-41-002",
-    address: "ת.דלק פז חגור",
-    arrive: "09:38",
-    depart: "10:06",
-    driver: "חכמת",
-  },
-  {
-    plate: "651-51-701",
-    address: "בורוכוב 28 תל אביב",
-    arrive: "07:12",
-    depart: "07:30",
-    driver: "עלי",
-  },
-  {
-    plate: "651-51-701",
-    address: "העוגב 15 קרני שומרון",
-    arrive: "11:20",
-    depart: "12:45",
-    driver: "עלי",
-  },
+  { plate: "615-41-002", address: "ירמיהו 11 רמת גן", arrive: "07:50", depart: "08:22", driver: "חכמת" },
+  { plate: "615-41-002", address: "נח 3 תל אביב", arrive: "06:10", depart: "06:45", driver: "חכמת" },
+  { plate: "615-41-002", address: "הורדים 19 סביון", arrive: "08:28", depart: "08:58", driver: "חכמת" },
+  { plate: "615-41-002", address: "ת.דלק פז חגור", arrive: "09:38", depart: "10:06", driver: "חכמת" },
+  { plate: "651-51-701", address: "בורוכוב 28 תל אביב", arrive: "07:12", depart: "07:30", driver: "עלי" },
+  { plate: "651-51-701", address: "העוגב 15 קרני שומרון", arrive: "11:20", depart: "12:45", driver: "עלי" },
 ];
+
+/* Stage A: live adapter in separate module */
+export { mapLiveIturanVisit, loadLiveIturanFromGas } from "./ituran-live-gas";
+export type { LiveIturanResult } from "./ituran-live-gas";
