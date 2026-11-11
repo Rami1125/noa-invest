@@ -189,19 +189,72 @@ export function analyzeHandwritingAgainstPto(opts: {
 }
 
 /** סינון אירועי PTO רלוונטיים לתעודה (כתובת גס) */
+function parseDateParts_(dStr?: string): { y: number; m: number; d: number } | null {
+  if (!dStr) return null;
+  const s = String(dStr).trim();
+  const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (isoMatch) {
+    return { y: parseInt(isoMatch[1]!, 10), m: parseInt(isoMatch[2]!, 10), d: parseInt(isoMatch[3]!, 10) };
+  }
+  const heMatch = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+  if (heMatch) {
+    return { d: parseInt(heMatch[1]!, 10), m: parseInt(heMatch[2]!, 10), y: parseInt(heMatch[3]!, 10) };
+  }
+  return null;
+}
+
+function getIsraelDateStr_(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Jerusalem",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const parts = formatter.formatToParts(d);
+    const y = parts.find((p) => p.type === "year")?.value;
+    const m = parts.find((p) => p.type === "month")?.value;
+    const day = parts.find((p) => p.type === "day")?.value;
+    return `${y}-${m}-${day}`;
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
+/** סינון אירועי PTO רלוונטיים לתעודה (תאריך ישראלי + כתובת) ללא חסמים */
 export function filterPtoForNote(
   events: IturanPtoEvent[],
   opts: { noteId?: string; address?: string; dateHint?: string },
 ): IturanPtoEvent[] {
   if (!events.length) return [];
+  let list = events;
+
+  // 1. סינון ראשוני מחייב לפי תאריך התעודה (בישראל UTC+2)
+  if (opts.dateHint) {
+    const parts = parseDateParts_(opts.dateHint);
+    if (parts) {
+      const targetDateStr = `${parts.y}-${String(parts.m).padStart(2, "0")}-${String(parts.d).padStart(2, "0")}`;
+      const dateFiltered = events.filter((e) => {
+        const evDate = getIsraelDateStr_(e.eventTimeIso);
+        return evDate === targetDateStr;
+      });
+      if (dateFiltered.length > 0) {
+        list = dateFiltered;
+      }
+    }
+  }
+
+  // 2. סינון משני לפי כתובת (אם קיימת התאמה בתוך אותו יום)
   const addrWords = String(opts.address || "")
     .replace(/[^\u0590-\u05FFa-zA-Z0-9 ]/g, " ")
     .split(/\s+/)
     .filter((w) => w.length > 2);
-  let list = events;
+
   if (addrWords.length) {
-    const matched = events.filter((e) => addrWords.some((w) => (e.address || "").includes(w)));
+    const matched = list.filter((e) => addrWords.some((w) => (e.address || "").includes(w)));
     if (matched.length) list = matched;
   }
+
   return list;
 }
