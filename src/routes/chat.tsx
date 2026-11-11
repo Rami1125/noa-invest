@@ -85,7 +85,7 @@ function ChatScreen() {
   const [activeCustomerNo, setActiveCustomerNo] = useState<string | undefined>(customerNoFromSearch);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
-  const [sessionId, setSessionId] = useState(() => `s-${Date.now()}`);
+  const [sessionId, setSessionId] = useState("s-init");
   const endRef = useRef<HTMLDivElement | null>(null);
   const autoStarted = useRef<string | null>(null);
 
@@ -140,7 +140,7 @@ function ChatScreen() {
     {
       id: "m0",
       sender: "noa",
-      time: now(),
+      time: "",
       statusTag: "מוכנה לעבודה",
       text:
         "שלום ראמי והראל.\n\n" +
@@ -160,6 +160,16 @@ function ChatScreen() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isThinking]);
+
+  useEffect(() => {
+    setMessages((prev) => {
+      if (!prev.length || prev[0]?.id !== "m0" || prev[0].time) return prev;
+      const next = [...prev];
+      next[0] = { ...next[0], time: now() };
+      return next;
+    });
+    setSessionId((id) => (id === "s-init" ? `s-${Date.now()}` : id));
+  }, []);
 
   useEffect(() => {
     setChatSessions(loadChatSessions());
@@ -202,12 +212,11 @@ function ChatScreen() {
     ]);
   }, []);
 
-  // NOTE: handleSend and UI continue in repository baseline — this push restores Route + welcome.
-  // Full handler restored below from known-good structure.
   const handleSend = useCallback(
     async (textToSend?: string, customerNoOverride?: string) => {
       const text = (textToSend ?? input).trim();
       if (!text || isThinking) return;
+
       const idMatch = text.match(/\b(\d{5,10})\b/);
       const noteHit = idMatch
         ? notes.find((n) => n.id === idMatch[1] || n.comaxOrder === idMatch[1])
@@ -220,7 +229,9 @@ function ChatScreen() {
         activeCustomerNo ||
         (named?.customerNo ? String(named.customerNo).trim() : undefined) ||
         (noteHit?.customerNo ? String(noteHit.customerNo).trim() : undefined);
+
       if (detectedCustomerNo) setActiveCustomerNo(detectedCustomerNo);
+
       setMessages((prev) => [
         ...prev,
         { id: `user-${Date.now()}`, sender: "user", text, time: now() },
@@ -228,6 +239,7 @@ function ChatScreen() {
       if (!textToSend) setInput("");
       setIsThinking(true);
       if (isSoundEnabled) void playDispatchChime(0.35);
+
       try {
         if (noteHit) {
           pushNoa({
@@ -252,11 +264,12 @@ function ChatScreen() {
           setIsThinking(false);
           return;
         }
+
         const qLower = text.toLowerCase();
         const isPtoQuestion =
           /מנוף|pto|איתוראן.?pto|פתיח/.test(qLower) &&
           (/כמה|פעמים|סיכום|רשימה|פירוט|היום|שבוע|מיקום|כתובת/.test(qLower) || qLower.includes("pto"));
-        if (isPtoQuestion) {
+        if (isPtoQuestion && !/חריג|מצגת|וידאו|דוח/.test(qLower)) {
           if (sessions.length > 0) {
             pushNoa({
               text: formatPtoOpeningsSummary(
@@ -278,13 +291,120 @@ function ChatScreen() {
             pushNoa({
               text:
                 "לא נמצאו אירועי פתיחת מנוף בטאב איתוראן_PTO בטווח שנטען (7 ימים אחרונים).\n\n" +
-                "אפשר לרענן את הנתונים או לבדוק שהמיילים מאיתוראן נקלטים לגיליון.",
+                "אפשר לרענן או לבדוק קליטת מיילי איתוראן.",
               statusTag: "מאומת · אין נתונים",
             });
           }
           setIsThinking(false);
           return;
         }
+
+        const isSlidesCmd = /פקודת מצגת|notebooklm.*מצגת|מצגת רנטגן|ליצירת מצגת/i.test(text);
+        const isVideoCmd = /פקודת וידאו|וידאו 60|סרטון|gemini.*וידאו/i.test(text);
+        const isReportCmd = /דוח תפעולי|דוח חריג|הדגשת חריג|פקודת דוח/i.test(text);
+        const isPtoAnomaly = /חריג.*מנוף|מעל 30|ללא תעודה|יתומ/i.test(text) && /מנוף|pto|סשן/i.test(text);
+
+        if (isSlidesCmd || isVideoCmd || isReportCmd || isPtoAnomaly) {
+          const longPto = sessions
+            .filter((s) => Number(s.durationMin || 0) >= 30)
+            .slice(0, 10)
+            .map(
+              (s) =>
+                `- ${s.address || "ללא כתובת"} · ${s.durationMin} דק׳ · ${s.openIso || ""}–${s.closeIso || ""} · ${s.matchedNoteId ? "ת.מ. " + s.matchedNoteId : "ללא תעודה"}`,
+            )
+            .join("\n");
+          const unmatched = sessions.filter((s) => !s.matchedNoteId).length;
+          const kpi = `KPI חי: תעודות ${notes.length} · סשני PTO ${sessions.length} · משויכים ${sessions.filter((s) => s.matchedNoteId).length} · ללא תעודה ${unmatched}`;
+
+          if (isPtoAnomaly && !isReportCmd) {
+            pushNoa({
+              text:
+                `חריגי מנוף (איתוראן_PTO / סשנים_PTO)\n\n${kpi}\n\nפריקות ≥30 דק׳:\n${longPto || "- אין בטווח"}\n\nסשנים ללא תעודה: ${unmatched}`,
+              statusTag: "מאומת · חריגי PTO",
+            });
+            setIsThinking(false);
+            return;
+          }
+
+          if (isSlidesCmd) {
+            const cmd = [
+              "השתמש רק במקורות שהועלו / בנתונים להלן. אל תמציא מספרים.",
+              "משימה: NotebookLM slide-deck · presenter · עברית RTL · 8 שקפים רנטגן תפעולי ח. סבן.",
+              kpi,
+              "",
+              "חריגי מנוף להדגשה:",
+              longPto || "- אין",
+              `סשנים ללא תעודה: ${unmatched}`,
+              "",
+              "מבנה שקפים:",
+              "1. שער — דוח רנטגן תפעולי",
+              "2. KPI ארגוני",
+              "3. תעודות משלוח אחרונות",
+              "4. מנוף PTO — פתיחות/סגירות וזמנים",
+              "5. חריגים (≥30 דק׳ / ללא תעודה)",
+              "6. הצלבה תעודה↔כתובת↔מנוף",
+              "7. המלצות לסידור",
+              "8. סיכום + CTA להראל וראמי",
+              "",
+              "לכל שקף: כותרת, 3–5 נקודות, הערת דובר 20–30 שנ׳. חסר → אין נתון במקור.",
+              "ויזואל: צילום מקצועי טבעי (לא הדמיה AI).",
+            ].join("\n");
+            pushNoa({
+              text: `פקודת מצגת מוכנה להעתקה ל-NotebookLM Studio:\n\n---\n${cmd}\n---\n\nהעתיקו את הבלוק בין קווי --- והדביקו ב-Studio → Slide deck.`,
+              statusTag: "מאומת · פקודת מצגת מלאה",
+            });
+            setIsThinking(false);
+            return;
+          }
+
+          if (isVideoCmd) {
+            const cmd = [
+              "NotebookLM video overview · explainer/brief · 60–90 שנ׳ · עברית.",
+              "רק מנתוני ח. סבן. אל תמציא מספרים.",
+              kpi,
+              "",
+              "[00–12] כותרת + KPI",
+              "[12–35] תעודות ואתרים",
+              "[35–55] מנוף PTO וזמני פריקה",
+              "[55–75] חריגים (מעל 30 דק׳ / ללא תעודה)",
+              "[75–90] המלצות + CTA",
+              "",
+              "חריגים:",
+              longPto || "- אין",
+              "",
+              "פלט: תסריט מלא + טקסט מסך + הנחיות צילום אמיתי (לא CGI).",
+            ].join("\n");
+            pushNoa({
+              text: `פקודת וידאו מוכנה להעתקה:\n\n---\n${cmd}\n---`,
+              statusTag: "מאומת · פקודת וידאו מלאה",
+            });
+            setIsThinking(false);
+            return;
+          }
+
+          if (isReportCmd) {
+            const cmd = [
+              "הפק דוח תפעולי בעברית RTL להנהלה. אל תמציא מספרים.",
+              "מבנה: תקציר · KPI · חריגים מודגשים · PTO · תעודות · המלצות.",
+              kpi,
+              "",
+              "חריגים לסימון בולט:",
+              "פריקות מנוף ≥30 דק׳:",
+              longPto || "- אין בטווח",
+              `סשני PTO ללא תעודה: ${unmatched}`,
+              "",
+              "בכל חריג: חומרה, השפעה על סידור, המלצת טיפול.",
+              "סיום: 5 פעולות לשבוע הקרוב.",
+            ].join("\n");
+            pushNoa({
+              text: `פקודת דוח תפעולי (חריגים מודגשים) — להעתקה ל-NotebookLM:\n\n---\n${cmd}\n---`,
+              statusTag: "מאומת · פקודת דוח מלאה",
+            });
+            setIsThinking(false);
+            return;
+          }
+        }
+
         const context = buildNoaContext({
           meta: brainMeta,
           fetchedAt: new Date().toLocaleString("he-IL"),
@@ -316,6 +436,7 @@ function ChatScreen() {
           discrepancies: [],
           question: text,
         });
+
         const history = [...messages, { id: "tmp", sender: "user" as const, text, time: now() }]
           .filter((m) => m.id !== "m0")
           .slice(-12)
@@ -323,9 +444,11 @@ function ChatScreen() {
             role: (m.sender === "user" ? "user" : "assistant") as "user" | "assistant",
             content: m.text,
           }));
+
         const res = await askNoa({
           data: { messages: history, context, customerNo: detectedCustomerNo },
         });
+
         pushNoa({
           text: res.text,
           statusTag: detectedCustomerNo
@@ -349,10 +472,7 @@ function ChatScreen() {
     const key = `${customerNoFromSearch}:review`;
     if (autoStarted.current === key) return;
     autoStarted.current = key;
-    void handleSend(
-      `הכיני סקירת לקוח מקצועית ללקוח ${customerNoFromSearch} בלבד.`,
-      customerNoFromSearch,
-    );
+    void handleSend(`הכיני סקירת לקוח מקצועית ללקוח ${customerNoFromSearch} בלבד.`, customerNoFromSearch);
   }, [customerNoFromSearch, isFetchingNotes, handleSend]);
 
   return (
