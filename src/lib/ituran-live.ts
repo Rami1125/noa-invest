@@ -66,8 +66,18 @@ export function isoToMinutesIL(iso: string): number | null {
   try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return null;
-    // דקות שעון מקומי של הסביבה (Vercel UTC — עדיף להשוות diff מוחלט)
-    return d.getUTCHours() * 60 + d.getUTCMinutes();
+    // המרה מדויקת לשעון ישראל (Asia/Jerusalem - UTC+2 חורף / UTC+3 קיץ) מול כתב היד
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Jerusalem",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(d);
+    let h = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+    if (h === 24) h = 0;
+    const m = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
+    return h * 60 + m;
   } catch {
     return null;
   }
@@ -108,7 +118,28 @@ export function matchCranePto(
   }
 
   // יש PTO
-  const latest = opens.slice().sort((a, b) => (a.eventTimeIso < b.eventTimeIso ? 1 : -1))[0]!;
+  const handMin =
+    (hand?.openIso ? isoToMinutesIL(hand.openIso) : null) ?? parseTimeToMinutes(hand?.openTime);
+
+  // מציאת אירוע ה-PTO הקרוב ביותר לשעת כתב-היד (במקום לקחת שרירותית את האחרון)
+  let bestPto = opens[0]!;
+  if (handMin != null) {
+    let minDelta = Infinity;
+    for (const op of opens) {
+      const pMin = isoToMinutesIL(op.eventTimeIso) ?? parseTimeToMinutes(op.eventTimeIso);
+      if (pMin != null) {
+        let d = Math.abs(pMin - handMin);
+        if (d > 12 * 60) d = Math.abs(d - 24 * 60);
+        if (d < minDelta) {
+          minDelta = d;
+          bestPto = op;
+        }
+      }
+    }
+  } else {
+    bestPto = opens.slice().sort((a, b) => (a.eventTimeIso < b.eventTimeIso ? 1 : -1))[0]!;
+  }
+  const latest = bestPto;
 
   if (!hand?.openTime && !hand?.openIso) {
     const when = formatIl(latest.eventTimeIso);
@@ -124,8 +155,6 @@ export function matchCranePto(
 
   const ptoMin =
     isoToMinutesIL(latest.eventTimeIso) ?? parseTimeToMinutes(latest.eventTimeIso);
-  const handMin =
-    (hand.openIso ? isoToMinutesIL(hand.openIso) : null) ?? parseTimeToMinutes(hand.openTime);
 
   if (ptoMin == null || handMin == null) {
     return {
@@ -191,7 +220,7 @@ export function asksCraneOrPto(q: string): boolean {
 export async function fetchIturanPtoLive(token: string, truck?: string) {
   const gasUrl =
     (typeof process !== "undefined" && process.env?.["ITURAN_GAS_URL"]) ||
-    "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
+    "https://script.google.com/macros/s/AKfycbw6EmTxp0buRjEl7JfKihm4xq2NP3kbGr46lEEYP3x3Vy_3eVkaOTVzChVjXJn5vaS8Ug/exec";
 
   let url = `${gasUrl}?action=getIturanPto&token=${encodeURIComponent(token)}`;
   if (truck) {
