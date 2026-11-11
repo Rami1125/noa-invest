@@ -1,6 +1,6 @@
 /**
  * /ituran — מרכז מודיעין לוגיסטי
- * שלב א׳: אמינות נתונים · שלב ב׳: מרכז חריגות
+ * שלב א׳: אמינות · שלב ב׳: חריגות · שלב ג׳: כרטיס אתר
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -23,6 +23,7 @@ import {
 import {
   IturanAnomaliesPanel, STAY_ALERT_MIN, dwellBand, type AnomaliesData,
 } from "@/components/IturanAnomaliesPanel";
+import { IturanSiteCard } from "@/components/IturanSiteCard";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,12 +64,6 @@ function tierBadge(tier: MatchTier) {
   );
 }
 
-function osmEmbed(lat: number, lng: number) {
-  const d = 0.03;
-  const bbox = [lng - d, lat - d, lng + d, lat + d].join(",");
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lng}`;
-}
-
 function IturanIntelligencePage() {
   const [tab, setTab] = useState<MainTab>("overview");
   const [search, setSearch] = useState("");
@@ -78,6 +73,7 @@ function IturanIntelligencePage() {
   const [filterTier, setFilterTier] = useState<MatchTier | "">("");
   const [uploadedStops, setUploadedStops] = useState<GpsStop[] | null>(null);
   const [selectedSiteKey, setSelectedSiteKey] = useState("");
+  const [siteSearch, setSiteSearch] = useState("");
 
   const notesQuery = useQuery<DeliveryNote[]>({
     queryKey: ["live-notes-ituran"],
@@ -290,8 +286,21 @@ function IturanIntelligencePage() {
   ]);
 
   const byDriver = useMemo(() => groupStopsByDriver(activeStops), [activeStops]);
+
+  const filteredSites = useMemo(() => {
+    const q = siteSearch.trim().toLowerCase();
+    if (!q) return sites;
+    return sites.filter((s) =>
+      [s.address, s.city, s.customerName, s.customerNo, s.siteKey]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q)),
+    );
+  }, [sites, siteSearch]);
+
   const selectedSite =
-    sites.find((s) => (s.siteKey || `${s.city}|${s.address}`) === selectedSiteKey) || sites[0];
+    sites.find((s) => (s.siteKey || `${s.city}|${s.address}`) === selectedSiteKey) ||
+    filteredSites[0] ||
+    sites[0];
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -402,7 +411,21 @@ function IturanIntelligencePage() {
         </div>
 
         {tab === "anomalies" && (
-          <IturanAnomaliesPanel anomalies={anomalies} onOpenSitesTab={() => setTab("sites")} />
+          <IturanAnomaliesPanel
+            anomalies={anomalies}
+            onOpenSitesTab={(address) => {
+              setTab("sites");
+              if (address) {
+                setSiteSearch(address);
+                const hit = sites.find(
+                  (s) =>
+                    (s.address || "").includes(address) ||
+                    address.includes(s.address || ""),
+                );
+                if (hit) setSelectedSiteKey(hit.siteKey || `${hit.city}|${hit.address}`);
+              }
+            }}
+          />
         )}
 
         {tab === "overview" && (
@@ -453,14 +476,10 @@ function IturanIntelligencePage() {
                       ) : (
                         <span className="text-xs text-amber-700">ללא תעודה</span>
                       )}
-                      {s.orphan === "missing_close" && (
-                        <span className="rounded bg-amber-100 px-1.5 text-[10px] font-bold text-amber-900">פתוח</span>
-                      )}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       {s.openIso ? israelTime(s.openIso) : "אין נתון"} –{" "}
                       {s.closeIso ? israelTime(s.closeIso) : "פתוח / אין נתון"}
-                      {s.durationMin != null ? ` · ${s.durationMin} דק׳` : ""}
                     </div>
                     <div className="truncate text-xs text-muted-foreground">{s.address || "כתובת לא ידועה"}</div>
                   </div>
@@ -473,16 +492,6 @@ function IturanIntelligencePage() {
 
         {tab === "match" && (
           <div className="space-y-3">
-            {(tab === "match") && (
-              <div className="flex flex-wrap items-end gap-2 rounded-2xl border border-border/60 bg-card p-3">
-                <Filter className="mb-2 h-4 w-4 text-muted-foreground" />
-                <div className="relative min-w-[12rem] flex-1">
-                  <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input value={search} onChange={(e) => setSearch(e.target.value)}
-                    placeholder="חיפוש תעודה, לקוח, כתובת…" className="pr-9" />
-                </div>
-              </div>
-            )}
             {filtered.map((m) => (
               <Card key={m.note.id} className="rounded-2xl border-border/70 p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -517,7 +526,7 @@ function IturanIntelligencePage() {
 
         {tab === "pto" && (
           <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">מקור: איתוראן_PTO · משך PTO נפרד מזמן שהייה. חסר = «אין נתון».</p>
+            <p className="text-xs text-muted-foreground">מקור: איתוראן_PTO · משך PTO נפרד מזמן שהייה.</p>
             {ptoSessions.map((s, i) => (
               <Card key={`${s.id}-${i}`} className="rounded-2xl border-border/70 p-4 shadow-sm">
                 <div className="font-bold">{s.truck || "—"} · {s.driver || "—"}</div>
@@ -536,41 +545,67 @@ function IturanIntelligencePage() {
                 )}
               </Card>
             ))}
-            {!ptoSessions.length && <p className="text-sm text-muted-foreground">אין אירועי PTO בטווח של 14 הימים האחרונים.</p>}
+            {!ptoSessions.length && <p className="text-sm text-muted-foreground">אין אירועי PTO בטווח.</p>}
           </div>
         )}
 
         {tab === "sites" && (
           <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">אתרי לקוחות מהאטלס · לחיצה לבחירה</p>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {sites.slice(0, 80).map((s) => {
-                const key = s.siteKey || `${s.city}|${s.address}`;
-                return (
-                  <button key={key} type="button" onClick={() => setSelectedSiteKey(key)}
-                    className={cn("rounded-xl border p-3 text-right text-sm transition",
-                      selectedSiteKey === key ? "border-emerald-400 bg-emerald-50" : "hover:bg-muted")}>
-                    <div className="font-bold truncate">{s.address || "—"}</div>
-                    <div className="text-xs text-muted-foreground">{s.city} · {s.visits} ביקורים</div>
-                  </button>
-                );
-              })}
+            <div className="rounded-2xl border border-sky-200/70 bg-sky-50/40 px-4 py-2.5 text-xs text-sky-950">
+              <strong>שלב ג׳ — כרטיס אתר</strong> · P50/P80 מגיליון · היסטוריית ביקורים · זמני PTO מאומתים · ניווט לתעודה/לקוח.
             </div>
-            {selectedSite && (
-              <Card className="rounded-2xl border-border p-4">
-                <h3 className="font-bold">{selectedSite.address}</h3>
-                <div className="mt-2 text-xs text-muted-foreground space-y-1">
-                  <div>שהייה חציון: {formatMinutes(selectedSite.medianMin)}</div>
-                  <div>P80: {formatMinutes(selectedSite.p80Min)} · מקס: {formatMinutes(selectedSite.maxMin)}</div>
-                  {selectedSite.customerNo && (
-                    <Link to="/customers/$id" params={{ id: String(selectedSite.customerNo) }}
-                      className="inline-flex text-sky-700 font-bold hover:underline">
-                      תיק לקוח {selectedSite.customerNo}
-                    </Link>
+            <div className="grid gap-4 lg:grid-cols-5">
+              <Card className="rounded-2xl border-border p-3 lg:col-span-2">
+                <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                  <h3 className="font-bold">אתרי לקוחות ({filteredSites.length}/{sites.length})</h3>
+                </div>
+                <div className="relative mb-2">
+                  <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={siteSearch}
+                    onChange={(e) => setSiteSearch(e.target.value)}
+                    placeholder="חיפוש כתובת, לקוח, עיר…"
+                    className="pr-9"
+                  />
+                </div>
+                <div className="max-h-[28rem] overflow-y-auto">
+                  {filteredSites.slice(0, 120).map((s) => {
+                    const key = s.siteKey || `${s.city}|${s.address}`;
+                    const active =
+                      selectedSite &&
+                      ((selectedSite.siteKey || "") === (s.siteKey || "") ||
+                        selectedSite.address === s.address);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setSelectedSiteKey(key)}
+                        className={cn(
+                          "mb-1 w-full rounded-xl px-3 py-2 text-right text-sm transition",
+                          active ? "bg-sky-100 font-bold text-sky-900" : "hover:bg-muted/60",
+                        )}
+                      >
+                        <div className="truncate">{s.address || s.city || key}</div>
+                        <div className="text-[11px] font-normal text-muted-foreground">
+                          {s.customerName || s.customerNo || "—"} · ביקורים: {s.visits ?? "—"}
+                          {s.ptoOpens ? ` · PTO: ${s.ptoOpens}` : ""}
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {!filteredSites.length && (
+                    <p className="px-2 py-4 text-sm text-muted-foreground">אין אתרים בסינון.</p>
                   )}
                 </div>
               </Card>
-            )}
+              <Card className="rounded-2xl border-border p-4 shadow-sm lg:col-span-3">
+                {selectedSite ? (
+                  <IturanSiteCard site={selectedSite} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">אין אתרים לטעינה.</p>
+                )}
+              </Card>
+            </div>
           </div>
         )}
 
