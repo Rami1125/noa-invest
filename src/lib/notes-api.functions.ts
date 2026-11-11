@@ -172,7 +172,7 @@ export type SheetPtoEvent = {
 };
 
 export const listNotesFn = createServerFn({ method: "POST" }).handler(async () => {
-  const data = await gasGet({ action: "getNotes" });
+  const data = await gasGet({ action: "getNotes", _t: String(Date.now()), nocache: "1" });
   return { notes: (Array.isArray(data.notes) ? data.notes : []) as SheetNote[] };
 });
 
@@ -213,7 +213,7 @@ export const listPtoFn = createServerFn({ method: "POST" })
     return { since, truck: String(d?.truck || "").slice(0, 20) };
   })
   .handler(async ({ data }) => {
-    const params: Record<string, string> = { action: "getIturanPto" };
+    const params: Record<string, string> = { action: "getIturanPto", _t: String(Date.now()), nocache: "1" };
     if (data.since) params.since = data.since;
     if (data.truck) params.truck = data.truck;
     const r = await gasGet(params);
