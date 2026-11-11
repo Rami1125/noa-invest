@@ -407,8 +407,8 @@ function CanvasWorkspace({
       return;
     }
     const depositBad = handAnalysis.deposits.some((d) => !d.ok);
-    const mismatch = handAnalysis.rows.some(
-      (r) => r.matchKind === "mismatch" || r.flags.length > 0,
+    const מנוף = handAnalysis.rows.some(
+      (r) => r.matchKind === "מנוף" || r.flags.length > 0,
     );
     pushNoa(
       [
@@ -417,7 +417,7 @@ function CanvasWorkspace({
         depositBad
           ? "⚠ יש חריגת פקדונות — ראמי חייב לאשר ידנית לפני החתמה סופית."
           : "✓ פקדונות תקינים לפי המקור.",
-        mismatch
+        מנוף
           ? "⚠ יש פער/דגל בכתב-יד מול PTO — לסקירת ראמי."
           : "✓ אין דגלי מנוף חריגים בפוענח.",
         "השלימו החתמה בכפתור השמירה בקנבס (ראמי) ל-Drive.",
