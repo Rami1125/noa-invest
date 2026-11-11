@@ -696,7 +696,7 @@ function CanvasWorkspace({
               className="flex shrink-0 gap-2 border-t p-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                void handleSend();
+                void handleSend(); 
               }}
             >
               <input
