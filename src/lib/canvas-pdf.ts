@@ -1,6 +1,9 @@
 /**
  * Build a signed delivery-note PDF from the canvas PNG using pdf-lib.
  * Supports multi-page by accepting an array of PNG data-URLs (one per page).
+ *
+ * Note: StandardFonts.Helvetica is WinAnsi only — it cannot encode Hebrew.
+ * Footer text is sanitized to ASCII; Hebrew content stays in the embedded PNG.
  */
 
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
@@ -13,6 +16,16 @@ export interface SignedPdfMeta {
   statusLabel?: string;
   /** ISO or display date */
   dateLabel?: string;
+}
+
+/** Strip non-WinAnsi characters so Helvetica.drawText never throws. */
+function toWinAnsiSafe(input: string): string {
+  return String(input || "")
+    .normalize("NFKD")
+    // Keep basic Latin, digits, common punctuation used in footers
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function dataUrlToUint8(dataUrl: string): Uint8Array {
@@ -34,7 +47,26 @@ export async function buildSignedNotePdf(
   if (!pageDataUrls.length) throw new Error("אין עמודים לייצוא");
 
   const pdf = await PDFDocument.create();
+  // Helvetica = WinAnsi. Never pass Hebrew / Unicode into drawText with this font.
   const font = await pdf.embedFont(StandardFonts.Helvetica);
+
+  const noteIdSafe = toWinAnsiSafe(meta.noteId);
+  const customerNoSafe = toWinAnsiSafe(meta.customerNo || "");
+  // Prefer customer number over Hebrew name in footer (name is on the scan image)
+  const customerSafe = customerNoSafe
+    ? `Cust #${customerNoSafe}`
+    : toWinAnsiSafe(meta.customer).slice(0, 40);
+  const signedSafe = toWinAnsiSafe(meta.signedBy || "");
+  const statusSafe = toWinAnsiSafe(meta.statusLabel || "");
+  // Avoid he-IL locale — may emit Hebrew month names
+  const dateSafe = toWinAnsiSafe(
+    meta.dateLabel ||
+      new Date().toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      }),
+  );
 
   for (const dataUrl of pageDataUrls) {
     const pngBytes = dataUrlToUint8(dataUrl);
@@ -59,16 +91,16 @@ export async function buildSignedNotePdf(
     page.drawImage(png, { x, y, width: drawW, height: drawH });
 
     const footer = [
-      `H. Saban · Note #${meta.noteId}`,
-      meta.customer ? meta.customer.slice(0, 40) : "",
-      meta.signedBy ? `Signed: ${meta.signedBy}` : "",
-      meta.statusLabel || "",
-      meta.dateLabel || new Date().toLocaleDateString("he-IL"),
+      `H. Saban · Note #${noteIdSafe}`,
+      customerSafe,
+      signedSafe ? `Signed: ${signedSafe}` : "",
+      statusSafe,
+      dateSafe,
     ]
       .filter(Boolean)
       .join(" · ");
 
-    page.drawText(footer.slice(0, 120), {
+    page.drawText(toWinAnsiSafe(footer).slice(0, 120), {
       x: margin,
       y: 12,
       size: 8,
