@@ -1,15 +1,24 @@
 /**
- * /logistics-dict — ארכיון + מילון_לוגיסט · לחיצה מרעננת פקודות NotebookLM
- * מיושר ל-notebooklm-py: slide-deck presenter · video heritage/classic
+ * /logistics-dict — ארכיון + מילון · תמונות Drive/העלאה · פקודות NotebookLM
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { BookOpen, Check, ImagePlus, Package, Palette, Presentation, RefreshCw, Search, Users, Video, Warehouse, X } from "lucide-react";
+import {
+  BookOpen, Check, ImagePlus, Link2, Package, Palette, Presentation,
+  RefreshCw, Search, Trash2, Upload, Users, Video, Warehouse, X,
+} from "lucide-react";
 import { PageHeader } from "@/components/AppShell";
 import { getPurchaseMatrixFn } from "@/lib/customer-history.functions";
 import { cn } from "@/lib/utils";
+import {
+  type MediaItem,
+  extractDriveFileId,
+  drivePublicUrls,
+  DEFAULT_STYLE,
+  buildMediaBlock,
+} from "@/lib/logistics-dict/media";
 
 export const Route = createFileRoute("/logistics-dict")({
   head: () => ({ meta: [{ title: "מילון לוגיסטי · ארכיון — ח. סבן" }] }),
@@ -17,13 +26,6 @@ export const Route = createFileRoute("/logistics-dict")({
 });
 
 const COLORS = ["#0f766e", "#0369a1", "#b45309", "#7c3aed", "#be123c", "#15803d", "#1d4ed8", "#a16207"];
-
-const DEFAULT_STYLE = `סגנון Stone Industrial Hebrew (ח. סבן):
-חומר: אבן חול #E8E2D8 + בטון עדין · טקסט #1C1917 · אמרלד #0F766E
-תאורה רכה · RTL · כותרות כבדות
-NotebookLM: slide-deck presenter · video style heritage/classic
-תמונות אמיתיות יוקרתיות של אתר/חומרים/מנוף — ממחישות ומעבירות אמינות
-אסור: סטוק גנרי, גרדיאנט צעקני, מספרים מומצאים`;
 
 type Focus =
   | { kind: "none" }
@@ -35,8 +37,11 @@ function LogisticsDictPage() {
   const [copied, setCopied] = useState<"slides" | "video" | "focus" | null>(null);
   const [focus, setFocus] = useState<Focus>({ kind: "none" });
   const [styleText, setStyleText] = useState(DEFAULT_STYLE);
-  const [imageRef, setImageRef] = useState("");
+  const [driveInput, setDriveInput] = useState("");
   const [imageNote, setImageNote] = useState("");
+  const [media, setMedia] = useState<MediaItem[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const purchaseQ = useQuery({
     queryKey: ["dict-purchase-matrix-v2"],
@@ -164,14 +169,54 @@ function LogisticsDictPage() {
     return null;
   }, [focus, products, byCustomer, dictBySku]);
 
-  const styleBlock = useMemo(() => ["--- כאן מתארים סגנון חזותי ייחודי ---", styleText.trim() || DEFAULT_STYLE].join("\n"), [styleText]);
-  const mediaBlock = useMemo(() => {
-    const lines = ["--- מדיה NotebookLM ---", imageRef.trim() ? `תמונה/source: ${imageRef.trim()}` : "תמונה: העלה ל-NotebookLM או ציין URL"];
-    if (imageNote.trim()) lines.push(`שימוש: ${imageNote.trim()}`);
-    return lines.join("\n");
-  }, [imageRef, imageNote]);
+  const addDriveLink = useCallback(() => {
+    setUploadError(null);
+    const raw = driveInput.trim();
+    if (!raw) return;
+    const id = extractDriveFileId(raw);
+    if (id) {
+      const urls = drivePublicUrls(id);
+      setMedia((prev) => [...prev, { id: `drive-${id}-${Date.now()}`, name: `Drive ${id.slice(0, 8)}…`, publicUrl: urls.view, previewUrl: urls.view, source: "drive" }]);
+      setDriveInput("");
+      return;
+    }
+    if (/^https?:\/\//i.test(raw)) {
+      setMedia((prev) => [...prev, { id: `url-${Date.now()}`, name: raw.split("/").pop()?.slice(0, 40) || "תמונה", publicUrl: raw, previewUrl: raw, source: "url" }]);
+      setDriveInput("");
+      return;
+    }
+    setUploadError("הדביקו קישור Drive מלא או URL ציבורי לתמונה");
+  }, [driveInput]);
 
-  const nlm = "יישור notebooklm-py: slide-deck presenter medium · video overview explainer/brief · style heritage/classic · grounding רק ממקורות שהועלו · עברית RTL";
+  const onFilePick = useCallback(async (files: FileList | null) => {
+    setUploadError(null);
+    if (!files?.length) return;
+    const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    for (const file of Array.from(files)) {
+      if (!allowed.includes(file.type)) {
+        setUploadError("רק תמונות: JPG, PNG, WEBP, GIF");
+        continue;
+      }
+      if (file.size > 8_000_000) {
+        setUploadError("קובץ גדול מ-8MB — העלו ל-Drive ושתפו קישור");
+        continue;
+      }
+      const previewUrl = URL.createObjectURL(file);
+      setMedia((prev) => [...prev, { id: `up-${Date.now()}-${file.name}`, name: file.name, publicUrl: "", previewUrl, source: "upload" }]);
+    }
+  }, []);
+
+  const removeMedia = (id: string) => {
+    setMedia((prev) => {
+      const item = prev.find((m) => m.id === id);
+      if (item?.source === "upload" && item.previewUrl.startsWith("blob:")) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter((m) => m.id !== id);
+    });
+  };
+
+  const styleBlock = useMemo(() => ["--- כאן מתארים סגנון חזותי ייחודי ---", styleText.trim() || DEFAULT_STYLE].join("\n"), [styleText]);
+  const mediaBlock = useMemo(() => buildMediaBlock(media, imageNote), [media, imageNote]);
+  const nlm = "יישור notebooklm-py: slide-deck presenter · video explainer/brief · heritage/classic · grounding ממקורות שהועלו · צילום אמיתי בלבד · עברית RTL";
 
   const slidesCmd = useMemo(() => {
     const top = products.slice(0, 8).map((p, i) => `${i + 1}. ${p.name} (${p.sku}): ${Math.round(p.qty)} · ${p.notes} תע׳`).join("\n");
@@ -179,9 +224,9 @@ function LogisticsDictPage() {
     const analysis = analysisPoints.map((p, i) => `${i + 1}. ${p}`).join("\n");
     const foc = focusDetail ? `\n--- מיקוד ---\n${focusDetail.title}\n${focusDetail.body}` : "";
     return [
-      "רק מקורות שהועלו (ארכיון_תעודות_גליה + מילון_לוגיסט). אל תמציא מספרים.",
+      "רק מקורות שהועלו (ארכיון + מילון + תמונות). אל תמציא מספרים.",
       nlm,
-      "משימה: slide-deck presenter · 8 שקפים · השקע בתמונות אמיתיות יוקרתיות.",
+      "משימה: slide-deck presenter · 8 שקפים · צילום מקצועי טבעי (לא הדמיה).",
       styleBlock,
       mediaBlock,
       foc,
@@ -191,7 +236,7 @@ function LogisticsDictPage() {
       "שקפים: 1.שער 2.KPI 3.מובילים 4.לקוחות 5.ריכוז 6.מלאי 7.המלצות 8.סיכום",
       top || "- אין נתון",
       cust || "- אין נתון",
-      "לכל שקף: כותרת, 3–5 נקודות, דובר 20–30 שנ׳. חסר → אין נתון במקור.",
+      "לכל שקף: כותרת, 3–5 נקודות, דובר 20–30 שנ׳.",
     ].join("\n");
   }, [products, byCustomer, matrix, analysisPoints, styleBlock, mediaBlock, focusDetail]);
 
@@ -208,13 +253,13 @@ function LogisticsDictPage() {
       "ניתוח:",
       analysisPoints.slice(0, 3).map((p, i) => `${i + 1}. ${p}`).join("\n"),
       `[00–12] כותרת+KPI  [12–35] מובילים ${top3 || "—"}  [35–55] לקוחות  [55–75] מלאי  [75–90] CTA`,
-      "פלט: תסריט + טקסט מסך + 5 prompts ויזואל.",
+      "פלט: תסריט + טקסט מסך · צילום אמיתי בלבד (לא CGI).",
     ].join("\n");
   }, [products, matrix, byCustomer, analysisPoints, styleBlock, mediaBlock, focusDetail]);
 
   const focusCmd = useMemo(() => {
     if (!focusDetail) return "";
-    return ["פקודת מיקוד NotebookLM:", nlm, styleBlock, mediaBlock, focusDetail.title, focusDetail.body, "slide-deck presenter קצר 4–6 שקפים או video brief סביב המיקוד. אל תמציא."].join("\n");
+    return ["פקודת מיקוד NotebookLM:", nlm, styleBlock, mediaBlock, focusDetail.title, focusDetail.body, "slide-deck קצר 4–6 שקפים או video brief. אל תמציא."].join("\n");
   }, [focusDetail, styleBlock, mediaBlock]);
 
   const copy = async (kind: "slides" | "video" | "focus") => {
@@ -231,7 +276,7 @@ function LogisticsDictPage() {
     <>
       <PageHeader
         title="מילון לוגיסטי"
-        subtitle="ארכיון + מילון_לוגיסט · לחיצה = פקודת Notebook מוכנה"
+        subtitle="ארכיון + מילון · תמונות Drive/העלאה · פקודת Notebook מוכנה"
         action={
           <button type="button" onClick={() => void purchaseQ.refetch()} disabled={loading} className="inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold hover:bg-muted disabled:opacity-60">
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /> רענון
@@ -246,7 +291,7 @@ function LogisticsDictPage() {
             {matrix?.readVia ? ` · ${matrix.readVia}` : ""}
           </p>
           <h1 className="mt-1 font-display text-2xl font-extrabold text-stone-900 dark:text-white">מה לקוחות רוכשים</h1>
-          <p className="mt-1 text-sm text-stone-600 dark:text-slate-400">לחצו על מוצר או לקוח — הפקודות מתעדכנות אוטומטית</p>
+          <p className="mt-1 text-sm text-stone-600 dark:text-slate-400">לחצו מוצר/לקוח · העלו תמונות או קישור Drive · העתיקו פקודה</p>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
             {[
               ["מקטים", products.length],
@@ -266,12 +311,8 @@ function LogisticsDictPage() {
 
         {focus.kind !== "none" && (
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm">
-            <span className="font-bold text-emerald-900 dark:text-emerald-200">
-              מיקוד: {focus.kind === "product" ? focus.name : focus.customerName}
-            </span>
-            <button type="button" onClick={() => setFocus({ kind: "none" })} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-bold">
-              <X className="h-3 w-3" /> נקה
-            </button>
+            <span className="font-bold text-emerald-900 dark:text-emerald-200">מיקוד: {focus.kind === "product" ? focus.name : focus.customerName}</span>
+            <button type="button" onClick={() => setFocus({ kind: "none" })} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-bold"><X className="h-3 w-3" /> נקה</button>
             <button type="button" onClick={() => void copy("focus")} className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-extrabold text-white">
               {copied === "focus" ? <Check className="h-3.5 w-3.5" /> : <BookOpen className="h-3.5 w-3.5" />}
               {copied === "focus" ? "הועתק" : "העתק פקודת מיקוד"}
@@ -356,24 +397,56 @@ function LogisticsDictPage() {
           </div>
         </section>
 
+        <section className="rounded-3xl border border-sky-500/30 bg-gradient-to-l from-sky-500/10 via-card to-stone-50 p-4 shadow-sm md:p-5">
+          <h2 className="flex items-center gap-2 font-display text-sm font-bold"><ImagePlus className="h-4 w-4 text-sky-700" /> תמונות ל-NotebookLM (Drive ציבורי / העלאה)</h2>
+          <p className="mt-1 text-xs text-muted-foreground">קישור Drive נכנס לפקודה · העלאה מקומית לתצוגה · בלי תמונה — הנחיה לצילום ריאליסטי (לא הדמיה)</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden" onChange={(e) => void onFilePick(e.target.files)} />
+            <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex min-h-11 items-center gap-2 rounded-xl border-2 border-sky-600/40 bg-sky-600 px-4 text-sm font-extrabold text-white hover:bg-sky-700">
+              <Upload className="h-4 w-4" /> העלאת תמונות
+            </button>
+          </div>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <div className="relative flex-1">
+              <Link2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input value={driveInput} onChange={(e) => setDriveInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addDriveLink()} placeholder="קישור Google Drive או URL ציבורי" className="min-h-11 w-full rounded-xl border bg-background pr-10 pl-3 text-sm" dir="ltr" />
+            </div>
+            <button type="button" onClick={addDriveLink} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-bold hover:bg-muted">הוסף קישור</button>
+          </div>
+          <label className="mt-3 block space-y-1">
+            <span className="text-xs font-bold">הנחיית שימוש בתמונות</span>
+            <input value={imageNote} onChange={(e) => setImageNote(e.target.value)} placeholder="רקע שער · בלי לכסות KPI" className="min-h-10 w-full rounded-xl border px-3 text-sm" />
+          </label>
+          {uploadError && <p className="mt-2 text-xs font-semibold text-destructive">{uploadError}</p>}
+          {media.length > 0 && (
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+              {media.map((m) => (
+                <div key={m.id} className="relative overflow-hidden rounded-2xl border bg-muted/30">
+                  <img src={m.previewUrl} alt={m.name} className="aspect-video w-full object-cover" />
+                  <div className="flex items-center justify-between gap-1 p-2 text-[10px]">
+                    <span className="truncate font-semibold">{m.source === "drive" ? "Drive" : m.source === "upload" ? "העלאה" : "URL"} · {m.name}</span>
+                    <button type="button" onClick={() => removeMedia(m.id)} className="rounded p-1 hover:bg-destructive/15" aria-label="הסר"><Trash2 className="h-3.5 w-3.5 text-destructive" /></button>
+                  </div>
+                  {!m.publicUrl && <p className="px-2 pb-2 text-[10px] text-amber-800 dark:text-amber-200">העלו ל-NotebookLM כ-source או שתפו מ-Drive</p>}
+                </div>
+              ))}
+            </div>
+          )}
+          {media.length === 0 && (
+            <p className="mt-3 rounded-xl border border-dashed border-stone-300 bg-stone-50/80 px-3 py-3 text-xs text-muted-foreground dark:bg-muted/20">
+              אין תמונות — בפקודה תופיע הנחיה לצילום מקצועי טבעי (לא הדמיה AI).
+            </p>
+          )}
+        </section>
+
         <section className="rounded-3xl border border-amber-500/30 bg-gradient-to-l from-amber-500/10 via-card to-stone-100 p-4 md:p-5">
           <h2 className="flex items-center gap-2 font-display text-sm font-bold"><Palette className="h-4 w-4 text-amber-700" /> כאן מתארים סגנון חזותי ייחודי</h2>
-          <textarea value={styleText} onChange={(e) => setStyleText(e.target.value)} rows={6} dir="rtl" className="mt-2 w-full rounded-2xl border p-3 text-xs leading-relaxed" />
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <label className="block space-y-1">
-              <span className="flex items-center gap-1 text-xs font-bold"><ImagePlus className="h-3.5 w-3.5" /> תמונה עם הפקודה</span>
-              <input value={imageRef} onChange={(e) => setImageRef(e.target.value)} placeholder="URL או שם source ב-NotebookLM" className="min-h-10 w-full rounded-xl border px-3 text-sm" dir="ltr" />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs font-bold">הנחיית שימוש</span>
-              <input value={imageNote} onChange={(e) => setImageNote(e.target.value)} placeholder="רקע שער · בלי לכסות KPI" className="min-h-10 w-full rounded-xl border px-3 text-sm" />
-            </label>
-          </div>
+          <textarea value={styleText} onChange={(e) => setStyleText(e.target.value)} rows={5} dir="rtl" className="mt-2 w-full rounded-2xl border p-3 text-xs leading-relaxed" />
         </section>
 
         <section className="rounded-3xl border border-emerald-600/25 bg-gradient-to-br from-emerald-500/10 via-card to-violet-500/10 p-4 md:p-5">
           <h2 className="flex items-center gap-2 font-display text-sm font-bold"><BookOpen className="h-4 w-4" /> פקודות Notebook מוכנות</h2>
-          <p className="mt-1 text-xs text-muted-foreground">מתחדשות עם כל לחיצה · מיושר ל-notebooklm-py</p>
+          <p className="mt-1 text-xs text-muted-foreground">כוללות סגנון, תמונות/Drive, ניתוח ומיקוד</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             <button type="button" onClick={() => void copy("slides")} className={cn("flex min-h-12 items-center justify-center gap-2 rounded-2xl border-2 text-sm font-extrabold", copied === "slides" ? "border-emerald-500 bg-emerald-500/15" : "border-primary/40 bg-primary text-primary-foreground")}>
               {copied === "slides" ? <Check className="h-4 w-4" /> : <Presentation className="h-4 w-4" />} מצגת
@@ -387,7 +460,7 @@ function LogisticsDictPage() {
           </div>
           <div className="mt-3 grid gap-3 lg:grid-cols-3">
             {[slidesCmd, videoCmd, focusCmd || "לחצו על מוצר או לקוח…"].map((txt, i) => (
-              <pre key={i} className="max-h-44 overflow-auto whitespace-pre-wrap rounded-2xl bg-stone-900/95 p-3 text-[10px] text-stone-100">{txt.length > 1600 ? txt.slice(0, 1600) + "\n…" : txt}</pre>
+              <pre key={i} className="max-h-48 overflow-auto whitespace-pre-wrap rounded-2xl bg-stone-900/95 p-3 text-[10px] text-stone-100">{txt.length > 1800 ? `${txt.slice(0, 1800)}\n…` : txt}</pre>
             ))}
           </div>
         </section>
@@ -396,7 +469,7 @@ function LogisticsDictPage() {
           <Link to="/notebook" className="font-bold text-primary hover:underline">Notebook</Link>
           {" · "}
           <Link to="/catalog" className="font-bold text-primary hover:underline">קטלוג</Link>
-          {" · "}notebooklm-py aligned
+          {" · "}תמונות: Drive ציבורי או source ב-NotebookLM
         </p>
       </main>
     </>
