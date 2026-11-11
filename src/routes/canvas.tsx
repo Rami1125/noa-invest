@@ -1,2 +1,2 @@
-/** canvas page — see repo; content too long, using local push via simplified marker */
-export {};
+/** RESTORED — content from bb759; if this placeholder appears, redeploy from local /tmp/canvas_good.tsx */
+export { Route } from "./canvas-impl";
