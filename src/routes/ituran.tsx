@@ -1,6 +1,7 @@
 /**
  * /ituran — מרכז מודיעין לוגיסטי
  * שלבים א׳–ד׳: אמינות · חריגות · כרטיס אתר · השוואת שהייה/P80
+ * + פאנל ביקורת סשני PTO (מדדים, חריגות >20 דק׳, הצלבת לקוח/תעודה)
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -24,6 +25,7 @@ import {
   IturanAnomaliesPanel, STAY_ALERT_MIN, dwellBand, type AnomaliesData,
 } from "@/components/IturanAnomaliesPanel";
 import { IturanSiteCard } from "@/components/IturanSiteCard";
+import { IturanPtoAuditPanel } from "@/components/IturanPtoAuditPanel";
 import {
   buildBenchmark,
   compareDwell,
@@ -333,7 +335,7 @@ function IturanIntelligencePage() {
     try {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf);
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]]);
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]!]);
       const stops = rowsToStops(rows);
       if (!stops.length) { toast.error("לא נמצאו עצירות בקובץ"); return; }
       setUploadedStops(stops);
@@ -456,217 +458,147 @@ function IturanIntelligencePage() {
         {tab === "overview" && (
           <div className="grid gap-4 lg:grid-cols-5">
             <Card className="space-y-3 rounded-2xl border-border p-4 shadow-sm lg:col-span-3">
-              <h3 className="font-display text-base font-bold">הצלבות אחרונות</h3>
-              <div className="max-h-[28rem] space-y-2 overflow-y-auto">
-                {filtered.slice(0, 40).map((m) => (
-                  <div key={m.note.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/50 bg-muted/20 px-3 py-2.5 text-sm">
-                    <div className="min-w-0">
-                      <div className="font-bold">
-                        <Link to="/notes/$id" params={{ id: String(m.note.id) }} className="hover:underline">
-                          ת.מ. {m.note.id}
-                        </Link>
-                        {m.note.customerNo ? (
-                          <Link to="/customers/$id" params={{ id: String(m.note.customerNo) }}
-                            className="mr-2 text-xs font-semibold text-sky-700 hover:underline">
-                            לקוח {m.note.customerNo}
-                          </Link>
-                        ) : null}
-                      </div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {m.note.customer} · {m.note.siteAddress || "ללא כתובת"}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {tierBadge(m.tier)}
-                      <span className="text-xs text-muted-foreground">שהייה: {formatMinutes(m.dwell)}</span>
-                    </div>
-                  </div>
-                ))}
-                {!filtered.length && <p className="text-sm text-muted-foreground">אין רשומות בסינון הנוכחי.</p>}
-              </div>
-            </Card>
-            <Card className="space-y-3 rounded-2xl border-border p-4 shadow-sm lg:col-span-2">
               <h3 className="font-display text-base font-bold">PTO אחרונים</h3>
-              <div className="max-h-[28rem] space-y-2 overflow-y-auto">
+              <div className="space-y-2">
                 {ptoSessions.slice(0, 25).map((s, i) => (
-                  <div key={`${s.truck}-${s.openIso}-${i}`} className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-sm">
-                    <div className="flex items-center gap-2 font-bold">
-                      <Gauge className="h-3.5 w-3.5 text-violet-600" />
-                      {s.truck || "—"}
-                      {s.matchedNoteId ? (
-                        <Link to="/notes/$id" params={{ id: String(s.matchedNoteId) }}
-                          className="text-xs font-semibold text-emerald-700 hover:underline">
-                          ת.מ. {s.matchedNoteId}
-                        </Link>
-                      ) : (
-                        <span className="text-xs text-amber-700">ללא תעודה</span>
-                      )}
+                  <div key={`${s.id}-${i}`} className="rounded-xl border bg-muted/20 px-3 py-2 text-xs">
+                    <div className="font-bold">{s.truck} · {s.driver || "—"}</div>
+                    <div className="text-muted-foreground tabular-nums">
+                      {s.openIso ? israelTime(s.openIso) : "—"} – {s.closeIso ? israelTime(s.closeIso) : "פתוח"}
+                      {s.durationMin != null ? ` · ${s.durationMin} דק׳` : ""}
                     </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {s.openIso ? israelTime(s.openIso) : "אין נתון"} –{" "}
-                      {s.closeIso ? israelTime(s.closeIso) : "פתוח / אין נתון"}
-                    </div>
-                    <div className="truncate text-xs text-muted-foreground">{s.address || "כתובת לא ידועה"}</div>
+                    <div>{s.address || "—"}</div>
                   </div>
                 ))}
                 {!ptoSessions.length && <p className="text-sm text-muted-foreground">אין אירועי PTO בטווח.</p>}
               </div>
+            </Card>
+            <Card className="space-y-2 rounded-2xl border-border p-4 shadow-sm lg:col-span-2">
+              <h3 className="font-display text-base font-bold">סיכום הצלבה</h3>
+              <ul className="space-y-1 text-sm">
+                <li>מאומת: <strong>{stats.verified}</strong></li>
+                <li>גבוה: <strong>{stats.high}</strong></li>
+                <li>לבדיקה: <strong>{stats.review}</strong></li>
+                <li>לא משויך: <strong>{stats.unmatched}</strong></li>
+              </ul>
             </Card>
           </div>
         )}
 
         {tab === "match" && (
           <div className="space-y-3">
-            {filtered.map((m) => (
-              <Card key={m.note.id} className="rounded-2xl border-border/70 p-4 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {statusIcon(m.status)}
-                      <Link to="/notes/$id" params={{ id: String(m.note.id) }} className="font-bold hover:underline">
-                        ת.מ. {m.note.id}
+            <div className="flex flex-wrap gap-2">
+              <div className="relative min-w-[12rem] flex-1">
+                <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="חיפוש תעודה / לקוח / כתובת" className="pe-10" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              {filtered.map((m) => (
+                <Card key={m.note.id} className="rounded-2xl border-border/70 p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {statusIcon(m.status)}
+                        <Link to="/notes/$id" params={{ id: String(m.note.id) }} className="font-bold hover:underline">
+                          ת.מ. {m.note.id}
+                        </Link>
+                        {tierBadge(m.tier)}
+                      </div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {m.note.customer} · {m.note.siteAddress || "—"}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1"><Truck className="h-3 w-3" />{m.plate || "אין רישוי"}</span>
+                        <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />שהייה: {formatMinutes(m.dwell)}</span>
+                      </div>
+                    </div>
+                    {m.note.customerNo && (
+                      <Link to="/customers/$id" params={{ id: String(m.note.customerNo) }}
+                        className="inline-flex min-h-9 items-center justify-center gap-1 rounded-xl border px-3 text-xs font-bold hover:bg-muted">
+                        תיק לקוח <ExternalLink className="h-3 w-3" />
                       </Link>
-                      {tierBadge(m.tier)}
-                    </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      {m.note.customer} · {m.note.siteAddress || "—"}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                      <span className="inline-flex items-center gap-1"><Truck className="h-3 w-3" />{m.plate || "אין רישוי"}</span>
-                      <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />שהייה: {formatMinutes(m.dwell)}</span>
-                    </div>
+                    )}
                   </div>
-                  {m.note.customerNo && (
-                    <Link to="/customers/$id" params={{ id: String(m.note.customerNo) }}
-                      className="inline-flex min-h-9 items-center justify-center gap-1 rounded-xl border px-3 text-xs font-bold hover:bg-muted">
-                      תיק לקוח <ExternalLink className="h-3 w-3" />
-                    </Link>
-                  )}
-                </div>
-              </Card>
-            ))}
-            {!filtered.length && <p className="text-center text-sm text-muted-foreground">אין תוצאות להצגה.</p>}
+                </Card>
+              ))}
+              {!filtered.length && <p className="text-center text-sm text-muted-foreground">אין תוצאות להצגה.</p>}
+            </div>
           </div>
         )}
 
         {tab === "pto" && (
           <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">מקור: איתוראן_PTO · משך PTO נפרד מזמן שהייה.</p>
-            {ptoSessions.map((s, i) => (
-              <Card key={`${s.id}-${i}`} className="rounded-2xl border-border/70 p-4 shadow-sm">
-                <div className="font-bold">{s.truck || "—"} · {s.driver || "—"}</div>
-                <div className="text-sm text-muted-foreground">
-                  {s.openIso ? israelTime(s.openIso) : "—"} – {s.closeIso ? israelTime(s.closeIso) : "פתוח"}
-                  {s.durationMin != null ? ` · ${s.durationMin} דק׳` : ""}
-                </div>
-                <div className="text-xs">{s.address || "—"}</div>
-                {s.matchedNoteId ? (
-                  <Link to="/notes/$id" params={{ id: String(s.matchedNoteId) }}
-                    className="mt-1 inline-flex text-xs font-bold text-emerald-700 hover:underline">
-                    משויך לת.מ. {s.matchedNoteId}
-                  </Link>
-                ) : (
-                  <span className="mt-1 text-xs text-amber-700">ללא תעודה</span>
-                )}
-              </Card>
-            ))}
-            {!ptoSessions.length && <p className="text-sm text-muted-foreground">אין אירועי PTO בטווח.</p>}
+            <p className="text-xs text-muted-foreground">
+              מקור: איתוראן_PTO · צימוד open/close לפי משאית · הצלבה לתעודות · חריגה מעל 20 דק׳ מודגשת באדום.
+            </p>
+            <IturanPtoAuditPanel sessions={ptoSessions} notes={notes} />
           </div>
         )}
 
         {tab === "sites" && (
           <div className="space-y-3">
-            <div className="rounded-2xl border border-sky-200/70 bg-sky-50/40 px-4 py-2.5 text-xs text-sky-950">
-              <strong>שלב ג׳+ד׳ — כרטיס אתר</strong> · P50/P80 · טווחי צי · היסטוריה · סימון מעל P80.
+            <div className="rounded-2xl border border-sky-200/70 bg-sky-50/40 px-4 py-2.5 text-xs text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
+              <strong>שלב ג׳ — כרטיס אתר</strong> · P50/P80 מגיליון · היסטוריית ביקורים · זמני PTO מאומתים · ניווט לתעודה/לקוח.
             </div>
-            <div className="grid gap-4 lg:grid-cols-5">
-              <Card className="rounded-2xl border-border p-3 lg:col-span-2">
-                <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                  <h3 className="font-bold">אתרי לקוחות ({filteredSites.length}/{sites.length})</h3>
-                </div>
-                <div className="relative mb-2">
-                  <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={siteSearch}
-                    onChange={(e) => setSiteSearch(e.target.value)}
-                    placeholder="חיפוש כתובת, לקוח, עיר…"
-                    className="pr-9"
-                  />
-                </div>
-                <div className="max-h-[28rem] overflow-y-auto">
-                  {filteredSites.slice(0, 120).map((s) => {
-                    const key = s.siteKey || `${s.city}|${s.address}`;
-                    const active =
-                      selectedSite &&
-                      ((selectedSite.siteKey || "") === (s.siteKey || "") ||
-                        selectedSite.address === s.address);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => setSelectedSiteKey(key)}
-                        className={cn(
-                          "mb-1 w-full rounded-xl px-3 py-2 text-right text-sm transition",
-                          active ? "bg-sky-100 font-bold text-sky-900" : "hover:bg-muted/60",
-                        )}
-                      >
-                        <div className="truncate">{s.address || s.city || key}</div>
-                        <div className="text-[11px] font-normal text-muted-foreground">
-                          {s.customerName || s.customerNo || "—"} · ביקורים: {s.visits ?? "—"}
-                          {s.ptoOpens ? ` · PTO: ${s.ptoOpens}` : ""}
-                        </div>
-                      </button>
-                    );
-                  })}
-                  {!filteredSites.length && (
-                    <p className="px-2 py-4 text-sm text-muted-foreground">אין אתרים בסינון.</p>
-                  )}
-                </div>
-              </Card>
-              <Card className="rounded-2xl border-border p-4 shadow-sm lg:col-span-3">
-                {selectedSite ? (
-                  <IturanSiteCard site={selectedSite} />
-                ) : (
-                  <p className="text-sm text-muted-foreground">אין אתרים לטעינה.</p>
-                )}
-              </Card>
+            <div className="relative max-w-md">
+              <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={siteSearch} onChange={(e) => setSiteSearch(e.target.value)} placeholder="חיפוש אתר / לקוח" className="pe-10" />
+            </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="space-y-2">
+                {filteredSites.slice(0, 40).map((s, i) => {
+                  const key = s.siteKey || `${s.city}|${s.address}`;
+                  const active = (selectedSite?.siteKey || `${selectedSite?.city}|${selectedSite?.address}`) === key;
+                  return (
+                    <button
+                      key={`${key}-${i}`}
+                      type="button"
+                      onClick={() => setSelectedSiteKey(key)}
+                      className={cn(
+                        "w-full rounded-2xl border p-3 text-start transition",
+                        active ? "border-primary/50 bg-primary/5" : "bg-card hover:bg-muted/40",
+                      )}
+                    >
+                      <div className="font-bold">{s.address}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {[s.city, s.customerName, s.customerNo && `#${s.customerNo}`].filter(Boolean).join(" · ")}
+                        {s.ptoOpens ? ` · PTO: ${s.ptoOpens}` : ""}
+                      </div>
+                    </button>
+                  );
+                })}
+                {!filteredSites.length && <p className="text-sm text-muted-foreground">אין אתרים.</p>}
+              </div>
+              <div>{selectedSite && <IturanSiteCard site={selectedSite} />}</div>
             </div>
           </div>
         )}
 
         {tab === "fleet" && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {(Object.keys(DRIVER_FLEET) as Array<keyof typeof DRIVER_FLEET>).map((id) => {
-              const d = DRIVER_FLEET[id];
-              const stops = byDriver[id] || [];
-              return (
-                <Card key={id} className="rounded-2xl border-border p-4">
-                  <div className="font-bold">{d.label}</div>
-                  <div className="text-xs text-muted-foreground">{stops.length} עצירות במקור הפעיל</div>
-                </Card>
-              );
-            })}
+          <div className="space-y-3">
+            {DRIVER_FLEET.map((d) => (
+              <Card key={d.plate} className="rounded-2xl border-border/70 p-4 shadow-sm">
+                <div className="font-bold">{d.name} · {d.plate}</div>
+                <div className="text-xs text-muted-foreground">{d.kind === "crane" ? "מנוף" : "משטח"}</div>
+              </Card>
+            ))}
           </div>
         )}
 
         {tab === "sources" && (
-          <Card className="space-y-3 rounded-2xl border-border p-4">
-            <h3 className="font-display text-base font-bold">מקורות נתונים</h3>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><strong className="text-foreground">תעודות</strong> — ארכיון תעודות משלוח</li>
-              <li><strong className="text-foreground">ביקורים</strong> — ביקורים_איתוראן</li>
-              <li><strong className="text-foreground">עצירות</strong> — {sourceLabel[stopsSource]}</li>
-              <li><strong className="text-foreground">PTO</strong> — איתוראן_PTO</li>
+          <Card className="space-y-2 rounded-2xl border-border p-4 text-sm shadow-sm">
+            <h3 className="font-display font-bold">מקורות נתונים</h3>
+            <ul className="list-disc space-y-1 pe-5 text-muted-foreground">
+              <li><strong className="text-foreground">תעודות</strong> — גיליון חי / fetchLiveNotes</li>
+              <li><strong className="text-foreground">עצירות / ביקורים</strong> — listIturanStopsFn / listIturanVisitsFn</li>
+              <li><strong className="text-foreground">PTO</strong> — איתוראן_PTO (listPtoFn → pairPtoEvents)</li>
+              <li><strong className="text-foreground">אתרים</strong> — getSiteAtlasFn</li>
             </ul>
-            <div className="flex flex-wrap gap-2">
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold hover:bg-muted">
-                <Upload className="h-3.5 w-3.5" /> העלאת XLSX עצירות
-                <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleUpload} />
-              </label>
-              {uploadedStops && (
-                <Button size="sm" variant="outline" onClick={() => setUploadedStops(null)}>חזרה לגיליון</Button>
-              )}
-            </div>
+            <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold hover:bg-muted">
+              <Upload className="h-4 w-4" /> העלאת קובץ עצירות
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleUpload} />
+            </label>
           </Card>
         )}
       </main>
