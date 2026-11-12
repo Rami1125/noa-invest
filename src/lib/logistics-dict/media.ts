@@ -1,4 +1,4 @@
-/** קישורי Drive ציבוריים + טיפוסי מדיה לפקודות NotebookLM */
+/** קישורי Drive ציבוריים + טיפוסי מדיה לפקודות NotebookLM · SABAN MASTER CREATIVE ENGINE */
 
 export type MediaItem = {
   id: string;
@@ -30,14 +30,16 @@ export const PHOTO_FALLBACK = `--- יצירת תמונות (אין תמונה מ
 • משאית מנוף בחזית אתר, בלי לוגואים בדויים
 • תקריב ידיים עם כפפות ליד שקי מלט
 סגנון: documentary / editorial, עומק שדה טבעי, גרגיר קל
-אסור: מראה AI, עור פלסטיק, טקסט מעוות, סצנה פנטסטית`;
+אסור: מראה AI, עור פלסטיק, טקסט מעוות, סצנה פנטסטית
+כאשר נדרשת המחשה AI — הגדר במפורש "המחשה חזותית" ואל תציג כתמונת מוצר רשמית.`;
 
-export const DEFAULT_STYLE = `סגנון Stone Industrial Hebrew (ח. סבן):
-חומר: אבן חול #E8E2D8 + בטון עדין · טקסט #1C1917 · אמרלד #0F766E
-תאורה רכה טבעית · RTL · כותרות כבדות
+/** סגנון ברירת מחדל — PREMIUM ARCHITECTURAL EDITORIAL */
+export const DEFAULT_STYLE = `סגנון PREMIUM ARCHITECTURAL EDITORIAL (ח. סבן):
+צבעים: לבן #FFFFFF · כחול עמוק #15324B · תכלת #DCEAF3 · אפור בטון #858B91 · אבן #E8E2D8 · טקסט #1C2732 · אמרלד #0F766E
+תאורה רכה טבעית · RTL · כותרות כבדות וקריאות
 NotebookLM: slide-deck presenter · video style heritage/classic
-ויזואל: צילום אמיתי מקצועי בלבד — לא הדמיה, לא CGI
-אסור: סטוק גנרי מוגזם, גרדיאנט צעקני, מספרים מומצאים`;
+ויזואל: צילום אמיתי מקצועי בלבד — לא הדמיה, לא CGI (אלא אם סומן "המחשה חזותית")
+אסור: סטוק גנרי מוגזם, גרדיאנט צעקני, מספרים מומצאים, עיצוב גנרי`;
 
 export function buildMediaBlock(media: MediaItem[], imageNote: string): string {
   const lines = ["--- מדיה ל-NotebookLM (תיקייה ציבורית / Drive) ---"];
