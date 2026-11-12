@@ -30,30 +30,35 @@ export const EDITORIAL_PALETTE = {
   accentEmerald: "#0F766E",
 } as const;
 
-export const MASTER_INSTRUCTIONS = `
-SABAN MASTER CREATIVE ENGINE — ח. סבן חומרי בניין (1994) בע"מ
+export const DEFAULT_MASTER_INSTRUCTIONS = `=== שכבת מאסטר מרכזית — SABAN MASTER CREATIVE ENGINE ===
+ח. סבן חומרי בניין (1994) בע"מ — מותג מקצועי, אמין, איכותי, ישראלי.
+תפקיד: מנהל קריאייטיב, יועץ טכני, עורך תוכן ומפיק מדיה.
 
-זהות: מותג מקצועי, אמין, איכותי, ישראלי ומוביל בחומרי בנייה.
-תפקיד: מנהל קריאייטיב, יועץ טכני, עורך תוכן ומפיק מדיה מקצועי.
-
-אמינות (כלל ברזל):
-- כל נתון טכני מבוסס מקור אמין בלבד (מפרט יצרן, דף מוצר, תקן, ארכיון).
-- אין להמציא מק״טים, מחירים, מידות, תקנים או ביצועים.
-- הבדל במפורש: נתון מאומת · הערכה · המלצה.
-- מידע חסר — ציין במפורש. אין מוצר חלופי כמקורי.
+אמינות: רק נתונים מאומתים ממפרט יצרן / ארכיון. אין להמציא מק"טים, מחירים, מידות או תקנים.
+הבדל: נתון מאומת · הערכה · המלצה. מידע חסר — ציין במפורש.
 
 שפה חזותית PREMIUM ARCHITECTURAL EDITORIAL:
-צבעים: #FFFFFF · #15324B · #DCEAF3 · #858B91 · #E8E2D8 · #1C2732 · #0F766E
-עברית RTL · טיפוגרפיה כבדה · קומפוזיציה אדריכלית · שטח לבן.
-אסור: גרדיאנטים צעקניים, קישוטים מיותרים, עיצוב גנרי.
+#FFFFFF #15324B #DCEAF3 #858B91 #E8E2D8 #1C2732 #0F766E
+עברית RTL · טיפוגרפיה כבדה · קומפוזיציה אדריכלית · ללא גרדיאנטים צעקניים.
 
-מדיניות תמונות (סדר עדיפויות):
-1. תמונת יצרן רשמית  2. צילום אמיתי  3. סביבת עבודה אמיתית  4. AI פוטוריאליסטי להמחשה בלבד
-ב-AI: סמן "המחשה חזותית", ללא לוגו/תווית מומצאים, ללא עיוות מוצר.
-סגנון: professional architectural photography, documentary editorial, natural daylight, authentic Israeli construction.
-
-מסכי דלפק: 16:9 · 1920×1080 · כותרות גדולות · מסר אחד · ניגודיות גבוהה.
+מדיניות תמונות: 1 יצרן 2 צילום אמיתי 3 אתר אמיתי 4 AI להמחשה בלבד (סמן במפורש).
+מסכי דלפק: 16:9 · 1920×1080 · כותרות גדולות · מסר אחד.
 `.trim();
+
+export const APPROVED_MASTER_ENTRY: MasterVersionEntry = {
+  version: APPROVED_MASTER_VERSION,
+  updatedAt: "2026-11-12T00:00:00.000Z",
+  label: "גרסה מאושרת",
+  instructions: DEFAULT_MASTER_INSTRUCTIONS,
+  isApprovedDefault: true,
+};
+
+export const INITIAL_MASTER_CONFIG: MasterConfigState = {
+  activeVersion: APPROVED_MASTER_VERSION,
+  updatedAt: APPROVED_MASTER_ENTRY.updatedAt,
+  instructions: DEFAULT_MASTER_INSTRUCTIONS,
+  history: [APPROVED_MASTER_ENTRY],
+};
 
 const STORAGE_KEY = "saban_master_creative_engine_v1";
 
@@ -62,65 +67,76 @@ function canUseStorage(): boolean {
 }
 
 export function loadMasterConfig(): MasterConfigState {
-  const fallback: MasterConfigState = {
-    activeVersion: APPROVED_MASTER_VERSION,
-    updatedAt: new Date().toISOString(),
-    instructions: MASTER_INSTRUCTIONS,
-    history: [
-      {
-        version: APPROVED_MASTER_VERSION,
-        updatedAt: new Date().toISOString(),
-        label: "גרסה מאושרת",
-        instructions: MASTER_INSTRUCTIONS,
-        isApprovedDefault: true,
-      },
-    ],
-  };
-  if (!canUseStorage()) return fallback;
+  if (!canUseStorage()) return { ...INITIAL_MASTER_CONFIG, history: [...INITIAL_MASTER_CONFIG.history] };
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
+    if (!raw) return { ...INITIAL_MASTER_CONFIG, history: [...INITIAL_MASTER_CONFIG.history] };
     const parsed = JSON.parse(raw) as MasterConfigState;
-    if (!parsed?.instructions || !parsed?.activeVersion) return fallback;
+    if (!parsed?.instructions || !parsed?.activeVersion) {
+      return { ...INITIAL_MASTER_CONFIG, history: [...INITIAL_MASTER_CONFIG.history] };
+    }
+    if (!Array.isArray(parsed.history) || parsed.history.length === 0) {
+      parsed.history = [APPROVED_MASTER_ENTRY];
+    }
     return parsed;
   } catch {
-    return fallback;
+    return { ...INITIAL_MASTER_CONFIG, history: [...INITIAL_MASTER_CONFIG.history] };
   }
 }
 
-export function saveMasterConfig(next: MasterConfigState): void {
+export function persistMasterConfig(config: MasterConfigState): void {
   if (!canUseStorage()) return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
 }
 
-export function createMasterVersion(
+export function saveNewMasterVersion(
+  current: MasterConfigState,
   instructions: string,
   label = "גרסה ידנית",
-): MasterVersionEntry {
+): MasterConfigState {
   const stamp = new Date().toISOString();
-  return {
+  const entry: MasterVersionEntry = {
     version: `v${stamp.slice(0, 19).replace(/[:T]/g, "")}`,
     updatedAt: stamp,
     label,
     instructions,
   };
+  const next: MasterConfigState = {
+    activeVersion: entry.version,
+    updatedAt: stamp,
+    instructions,
+    history: [entry, ...current.history].slice(0, 12),
+  };
+  persistMasterConfig(next);
+  return next;
 }
 
-export function restoreApprovedMaster(): MasterConfigState {
-  const state: MasterConfigState = {
+export function restoreMasterVersion(
+  current: MasterConfigState,
+  version: string,
+): MasterConfigState {
+  const found = current.history.find((h) => h.version === version);
+  if (!found) return current;
+  const next: MasterConfigState = {
+    activeVersion: found.version,
+    updatedAt: new Date().toISOString(),
+    instructions: found.instructions,
+    history: current.history,
+  };
+  persistMasterConfig(next);
+  return next;
+}
+
+export function resetToApprovedMaster(current: MasterConfigState): MasterConfigState {
+  const next: MasterConfigState = {
     activeVersion: APPROVED_MASTER_VERSION,
     updatedAt: new Date().toISOString(),
-    instructions: MASTER_INSTRUCTIONS,
+    instructions: DEFAULT_MASTER_INSTRUCTIONS,
     history: [
-      {
-        version: APPROVED_MASTER_VERSION,
-        updatedAt: new Date().toISOString(),
-        label: "גרסה מאושרת",
-        instructions: MASTER_INSTRUCTIONS,
-        isApprovedDefault: true,
-      },
-    ],
+      APPROVED_MASTER_ENTRY,
+      ...current.history.filter((h) => h.version !== APPROVED_MASTER_VERSION),
+    ].slice(0, 12),
   };
-  saveMasterConfig(state);
-  return state;
+  persistMasterConfig(next);
+  return next;
 }
