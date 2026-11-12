@@ -1,4 +1,8 @@
-/** קישורי Drive ציבוריים + טיפוסי מדיה לפקודות NotebookLM · SABAN MASTER CREATIVE ENGINE */
+/**
+ * מנוע מדיה ותמונות מקצועי (4 רמות עדיפות + מדיניות AI מחמירה) + קישורי Drive ציבוריים
+ */
+
+export type MediaPriorityTier = "manufacturer_official" | "real_product_photo" | "real_site_photo" | "ai_illustration";
 
 export type MediaItem = {
   id: string;
@@ -6,6 +10,14 @@ export type MediaItem = {
   publicUrl: string;
   previewUrl: string;
   source: "drive" | "upload" | "url";
+  tier?: MediaPriorityTier;
+};
+
+export const MEDIA_TIER_LABELS: Record<MediaPriorityTier, string> = {
+  manufacturer_official: "1. תמונת מוצר רשמית של היצרן",
+  real_product_photo: "2. צילום אמיתי של המוצר",
+  real_site_photo: "3. צילום מקצועי של סביבת עבודה אמיתית",
+  ai_illustration: "4. תמונת AI להמחשה חזותית בלבד",
 };
 
 export function extractDriveFileId(urlOrId: string): string | null {
@@ -24,37 +36,45 @@ export function drivePublicUrls(fileId: string) {
   };
 }
 
-export const PHOTO_FALLBACK = `--- יצירת תמונות (אין תמונה מצורפת) ---
-צור/י תמונות קרובות מאוד למציאות — צילום מקצועי טבעי, לא הדמיה:
-• אתר בנייה ישראלי באור יום רך, חומרי גלם על משטח
-• משאית מנוף בחזית אתר, בלי לוגואים בדויים
-• תקריב ידיים עם כפפות ליד שקי מלט
-סגנון: documentary / editorial, עומק שדה טבעי, גרגיר קל
-אסור: מראה AI, עור פלסטיק, טקסט מעוות, סצנה פנטסטית
-כאשר נדרשת המחשה AI — הגדר במפורש "המחשה חזותית" ואל תציג כתמונת מוצר רשמית.`;
+export const PHOTO_STYLE_DIRECTIVE =
+  "Professional architectural photography, documentary editorial, natural daylight, realistic material textures, authentic Israeli construction environments, controlled depth of field.";
 
-/** סגנון ברירת מחדל — PREMIUM ARCHITECTURAL EDITORIAL */
+export const PHOTO_FALLBACK = `--- מדיניות תמונות (אין תמונה מצורפת — סדר עדיפויות 4: המחשה חזותית AI בלבד) ---
+• סיווג מחייב: כאשר אין תמונת יצרן רשמית או צילום אמיתי, יש להגדיר במפורש שמדובר בהמחשה חזותית בלבד.
+• אסור להציג תמונת AI כתמונת מוצר רשמית.
+• אסור להמציא לוגו, תווית, אריזה או טקסט מסחרי על גבי המוצר, ואין לעוות את מראה המוצר.
+• סצנות בנייה ישראליות אותנטיות, תאורה טבעית וחומרים בעלי מרקם אמיתי (אבן חול, בטון, שקי מלט מסודרים).
+• סגנון צילום: ${PHOTO_STYLE_DIRECTIVE}`;
+
 export const DEFAULT_STYLE = `סגנון PREMIUM ARCHITECTURAL EDITORIAL (ח. סבן):
-צבעים: לבן #FFFFFF · כחול עמוק #15324B · תכלת #DCEAF3 · אפור בטון #858B91 · אבן #E8E2D8 · טקסט #1C2732 · אמרלד #0F766E
-תאורה רכה טבעית · RTL · כותרות כבדות וקריאות
+פלטה: לבן #FFFFFF · כחול עמוק #15324B · תכלת #DCEAF3 · בטון #858B91 · אבן טבעית #E8E2D8 · טקסט #1C2732 · אמרלד #0F766E
+תאורה טבעית · עברית RTL · טיפוגרפיה כבדה וקריאה · מרווחים נדיבים
 NotebookLM: slide-deck presenter · video style heritage/classic
-ויזואל: צילום אמיתי מקצועי בלבד — לא הדמיה, לא CGI (אלא אם סומן "המחשה חזותית")
-אסור: סטוק גנרי מוגזם, גרדיאנט צעקני, מספרים מומצאים, עיצוב גנרי`;
+ויזואל: צילום מקצועי אמיתי בלבד (תיעוד אדריכלי) — ללא CGI צעקני או סטוק גנרי`;
 
 export function buildMediaBlock(media: MediaItem[], imageNote: string): string {
-  const lines = ["--- מדיה ל-NotebookLM (תיקייה ציבורית / Drive) ---"];
+  const lines = [
+    "--- מנוע תמונות ומדיה ל-NotebookLM ---",
+    "סדר עדיפויות מחייב: 1) תמונת יצרן רשמית ← 2) צילום מוצר אמיתי ← 3) צילום סביבת עבודה אמיתית ← 4) המחשה חזותית AI בלבד.",
+  ];
   const withUrl = media.filter((m) => m.publicUrl);
   const localOnly = media.filter((m) => !m.publicUrl);
   if (withUrl.length) {
-    lines.push("קישורים ציבוריים לשימוש בשקפים / וידאו:");
-    withUrl.forEach((m, i) => lines.push(`${i + 1}. ${m.name}: ${m.publicUrl}`));
-    lines.push("השתמש בקישורים כרקע/המחשה בלבד; אל תשנה מספרי KPI.");
+    lines.push("קישורים ציבוריים מאושרים לשימוש:");
+    withUrl.forEach((m, i) => {
+      const tierLabel = m.tier ? ` [${MEDIA_TIER_LABELS[m.tier]}]` : "";
+      lines.push(`${i + 1}. ${m.name}${tierLabel}: ${m.publicUrl}`);
+    });
+    lines.push("השתמש בתמונות כהמחשה/רקע בלבד; אין להמציא תכונות מוצר על בסיס תמונה בלבד ואין לשנות מספרי KPI.");
   }
   if (localOnly.length) {
-    lines.push("קבצים מקומיים (להעלות ל-NotebookLM כ-source או ל-Drive ציבורי):");
-    localOnly.forEach((m, i) => lines.push(`${i + 1}. ${m.name}`));
+    lines.push("קבצים מקומיים (להעלאה ל-NotebookLM כ-source או ל-Drive ציבורי):");
+    localOnly.forEach((m, i) => {
+      const tierLabel = m.tier ? ` [${MEDIA_TIER_LABELS[m.tier]}]` : "";
+      lines.push(`${i + 1}. ${m.name}${tierLabel}`);
+    });
   }
-  if (imageNote.trim()) lines.push(`הנחיית שימוש: ${imageNote.trim()}`);
+  if (imageNote.trim()) lines.push(`הנחיית שימוש במדיה: ${imageNote.trim()}`);
   if (!withUrl.length && !localOnly.length) lines.push(PHOTO_FALLBACK);
   return lines.join("\n");
 }
