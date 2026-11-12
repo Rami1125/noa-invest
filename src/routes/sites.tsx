@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/AppShell";
 import { getSiteAtlasFn } from "@/lib/customer-history.functions";
@@ -22,6 +22,9 @@ import {
 
 export const Route = createFileRoute("/sites")({
   head: () => ({ meta: [{ title: "אתרי אספקה, זמני פריקה וצווארי בקבוק — ח. סבן" }] }),
+  validateSearch: (s: Record<string, unknown>) => ({
+    q: typeof s.q === "string" ? s.q : undefined,
+  }),
   component: SitesPage,
 });
 
@@ -37,7 +40,11 @@ function getSiteRegion(city: string): Region {
 }
 
 function SitesPage() {
-  const [search, setSearch] = useState("");
+  const { q: qFromUrl } = Route.useSearch();
+  const [search, setSearch] = useState(qFromUrl || "");
+  useEffect(() => {
+    if (qFromUrl) setSearch(qFromUrl);
+  }, [qFromUrl]);
   const [selectedKey, setSelectedKey] = useState("");
   const [expandedKey, setExpandedKey] = useState("");
   const [selectedRegion, setSelectedRegion] = useState<Region>("all");
