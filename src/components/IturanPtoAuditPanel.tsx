@@ -76,24 +76,20 @@ function startOfDayIL(d: Date): Date {
 }
 
 function israelWeekBounds(ref: Date, which: "this" | "last"): { from: Date; to: Date } {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Jerusalem", weekday: "short", year: "numeric", month: "2-digit", day: "2-digit",
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jerusalem", year: "numeric", month: "2-digit", day: "2-digit",
   });
-  const parts = fmt.formatToParts(ref);
-  const y = Number(parts.find((p) => p.type === "year")?.value);
-  const mo = Number(parts.find((p) => p.type === "month")?.value);
-  const da = Number(parts.find((p) => p.type === "day")?.value);
-  const wd = parts.find((p) => p.type === "weekday")?.value || "Sun";
+  const wdFmt = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", weekday: "short" });
+  const ymd = fmt.format(ref);
+  const [ys, ms, ds] = ymd.split("-").map(Number);
+  const wd = wdFmt.format(ref);
   const wdMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   const dayIdx = wdMap[wd] ?? 0;
-  const base = new Date(Date.UTC(y, mo - 1, da, 0, 0, 0));
-  const sunday = new Date(base);
-  sunday.setUTCDate(base.getUTCDate() - dayIdx);
-  if (which === "last") sunday.setUTCDate(sunday.getUTCDate() - 7);
-  const saturday = new Date(sunday);
-  saturday.setUTCDate(sunday.getUTCDate() + 6);
-  saturday.setUTCHours(23, 59, 59, 999);
-  return { from: sunday, to: saturday };
+  const sundayUtc = Date.UTC(ys!, ms! - 1, ds! - dayIdx, 0, 0, 0);
+  let fromMs = sundayUtc - 3 * 3600 * 1000;
+  if (which === "last") fromMs -= 7 * 24 * 3600 * 1000;
+  const toMs = fromMs + 8 * 24 * 3600 * 1000;
+  return { from: new Date(fromMs), to: new Date(toMs) };
 }
 
 function calcDurationMin(openIso: string, closeIso?: string): number | null {
@@ -212,7 +208,7 @@ function handBadge(kind: HandCompare["kind"]) {
 }
 
 export function IturanPtoAuditPanel({ sessions, notes, sites, className }: Props) {
-  const [preset, setPreset] = useState<DatePreset>("this_week");
+  const [preset, setPreset] = useState<DatePreset>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [truckFilter, setTruckFilter] = useState("");
   const [search, setSearch] = useState("");
@@ -505,8 +501,32 @@ export function IturanPtoAuditPanel({ sessions, notes, sites, className }: Props
       </div>
 
       {!filtered.length && (
-        <div className="rounded-3xl border border-dashed p-12 text-center text-sm text-muted-foreground">
-          אין סשנים בטווח/סינון — רק נתוני גיליון אמיתיים.
+        <div className="space-y-3 rounded-3xl border border-dashed border-amber-400/40 bg-amber-500/5 p-8 text-center">
+          <p className="text-sm font-bold text-foreground">
+            {allRows.length === 0
+              ? "אין סשני PTO בטעינה הנוכחית מהגיליון"
+              : `יש ${allRows.length} סשנים במאגר, אך אף אחד לא תואם את הסינון`}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {allRows.length === 0
+              ? "ודא שטאב איתוראן_PTO מכיל אירועי open/close, או לחץ רענון בראש הדף."
+              : "נסה «הכל» בטווח תאריכים, או נקה סינון סטטוס/משאית/כתובת."}
+          </p>
+          {allRows.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setPreset("all");
+                setStatusFilter("all");
+                setTruckFilter("");
+                setSearch("");
+                setHistoryAddress("");
+              }}
+              className="inline-flex min-h-10 items-center rounded-2xl bg-primary px-4 text-xs font-bold text-primary-foreground"
+            >
+              הצג את כל {allRows.length} הסשנים
+            </button>
+          )}
         </div>
       )}
 
