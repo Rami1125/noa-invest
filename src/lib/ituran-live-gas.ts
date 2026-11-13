@@ -52,10 +52,10 @@ export function mapLiveIturanVisit(row: AppsScriptVisit): IturanStop | null {
   const truck = `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
   const date = gasDate(gasValue(row, ["תאריך", "תאריך ביקור", "date"]));
   const address = gasValue(row, ["כתובת", "כתובת מלאה", "address", "fullAddress"]);
-  const startTime = gasDateTime(gasValue(row, ["איתוראן: הגעה", "הגעה (איתוראן)", "ituranArriveTime", "itArrive"]), date);
-  const endTime = gasDateTime(gasValue(row, ["איתוראן: יציאה", "יציאה (איתוראן)", "ituranDepartTime", "itDepart"]), date);
+  const startTime = gasDateTime(gasValue(row, ["איתוראן: הגעה", "הגעה (איתוראן)", "הגעה איתוראן", "ituranArriveTime", "itArrive"]), date);
+  const endTime = gasDateTime(gasValue(row, ["איתוראן: יציאה", "יציאה (איתוראן)", "עזיבה איתוראן", "יציאה איתוראן", "ituranDepartTime", "itDepart"]), date);
   if (!date || !address || !startTime || !endTime) return null;
-  const rawDuration = Number(gasValue(row, ["איתוראן: משך עצירה (דק׳)", "משך באתר (דק׳)", "ituranDurationMin", "itStop"]));
+  const rawDuration = Number(gasValue(row, ["איתוראן: משך עצירה (דק׳)", "משך באתר (דק׳)", "שהייה איתוראן דק׳", "שהייה איתוראן דק'", "ituranDurationMin", "itStop"]));
   const durationMin = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : gasMinutesBetween(startTime, endTime);
   if (!durationMin) return null;
   const ptoOpen = gasDateTime(gasValue(row, ["PTO פתיחה", "PTO פתיחה (איתוראן)", "ptoOpenTime", "ptoOpen"]), date);
@@ -86,11 +86,13 @@ export async function loadLiveIturanFromGas({ gasUrl, token, fetcher = fetch }: 
     let payload: { ok?: boolean; success?: boolean; error?: unknown; data?: { visits?: unknown } };
     try { payload = JSON.parse(text) as typeof payload; }
     catch { throw new Error(`תשובת GAS אינה JSON תקין (HTTP ${response.status})`); }
-    if (!response.ok || payload.ok === false || payload.success === false) throw new Error(String(payload.error || `GAS HTTP ${response.status}`));
-    if (!Array.isArray(payload.data?.visits)) throw new Error("תשובת GAS אינה מכילה רשימת ביקורים");
-    const stops = (payload.data.visits as AppsScriptVisit[]).map(mapLiveIturanVisit).filter((stop): stop is IturanStop => stop !== null);
-    return stops.length ? { source: "live", stops } : { source: "none", stops: [], error: "אין ביקורים עם מקור איתוראן וזמני עצירה מאומתים" };
-  } catch (error) {
-    return { source: "none", stops: [], error: error instanceof Error ? error.message : String(error) };
+    if (!response.ok || payload.ok === false || payload.success === false) {
+      throw new Error(String(payload.error || `GAS HTTP ${response.status}`));
+    }
+    const visits = Array.isArray(payload.data?.visits) ? payload.data!.visits as AppsScriptVisit[] : [];
+    const stops = visits.map(mapLiveIturanVisit).filter((stop): stop is IturanStop => stop !== null);
+    return { source: stops.length ? "live" : "none", stops };
+  } catch (e) {
+    return { source: "none", stops: [], error: e instanceof Error ? e.message : String(e) };
   }
 }
