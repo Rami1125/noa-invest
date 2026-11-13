@@ -31,6 +31,7 @@ import { Upload, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
+import { matchFromArchiveGps } from "@/lib/archive-gps-match";
 
 export const Route = createFileRoute("/ituran")({
   head: () => ({ meta: [{ title: "מודיעין איתוראן — נועה | ח. סבן" }] }),
@@ -157,8 +158,12 @@ function IturanIntelligencePage() {
           fromSheet: true,
           tier: tierFromAudit(status, true),
           ptoMin: ptoNum != null && Number.isFinite(ptoNum) ? ptoNum : null,
+          gpsSource: "ituran_live" as const,
         };
       }
+
+      const archiveGps = matchFromArchiveGps(note);
+      if (archiveGps) return archiveGps;
 
       const plate = normalizePlate(String((note as { truck?: string }).truck || "")) || plateOfDriver(note.driver) || "";
       const kind = kindOfPlate(plate);
@@ -381,6 +386,9 @@ function IturanIntelligencePage() {
                   <div>
                     <Link to="/notes/$id" params={{ id: String(m.note.id) }} className="font-bold hover:underline">ת.מ. {m.note.id}</Link>
                     <div className="text-xs text-muted-foreground">{m.note.customer || "—"} · {m.note.siteAddress || "—"}</div>
+                    {(m as { gpsSource?: string }).gpsSource && (
+                      <div className="text-[10px] text-muted-foreground/80">מקור GPS: {(m as { gpsSource?: string }).gpsSource}</div>
+                    )}
                   </div>
                   {tierBadge(m.tier)}
                 </div>
