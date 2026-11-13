@@ -110,52 +110,86 @@ async function loadSource(
   }
 }
 
-function buildLiveSummary(notesSrc: SourceResult, ptoSrc: SourceResult): Record<string, unknown> {
-  const notes = (notesSrc.records || []) as Record<string, unknown>[];
-  const events = (ptoSrc.records || []) as Record<string, unknown>[];
-  let withGps = 0;
+function noteHasArchiveGps(n: Record<string, unknown>): boolean {
+  const src = String(n.gpsSource || "");
+  return (
+    n.hasGpsMatch === true ||
+    n.hasGpsMatch === "true" ||
+    src === "sheet_AA_AB" ||
+    src === "sheet_AH_AJ" ||
+    Boolean(n.itArrive && n.itDepart)
+  );
+}
+
+function noteIdOf(n: Record<string, unknown>): string {
+  return String(n.id ?? n.docNumber ?? n["מספר תעודה"] ?? n.noteId ?? "").trim();
+}
+
+/** liveSummary על המערך המלא (לפני compactSource) — מקור האמת לסיכומים */
+function buildLiveSummary(
+  allNotes: unknown[],
+  allPto: unknown[],
+  _allHandwritten: unknown[] = [],
+): Record<string, unknown> {
+  const notes = allNotes as Record<string, unknown>[];
+  const events = allPto as Record<string, unknown>[];
+
+  let notesWithArchiveGps = 0;
   let aaAb = 0;
   let ahAj = 0;
+  const withoutGpsIds: string[] = [];
   for (const n of notes) {
     const src = String(n.gpsSource || "");
-    const match =
-      n.hasGpsMatch === true ||
-      n.hasGpsMatch === "true" ||
-      Boolean(n.itArrive && n.itDepart) ||
-      src === "sheet_AA_AB" ||
-      src === "sheet_AH_AJ";
-    if (match) withGps++;
-    if (src === "sheet_AA_AB") aaAb++;
-    if (src === "sheet_AH_AJ") ahAj++;
+    if (noteHasArchiveGps(n)) {
+      notesWithArchiveGps++;
+      if (src === "sheet_AA_AB") aaAb++;
+      if (src === "sheet_AH_AJ") ahAj++;
+    } else {
+      const id = noteIdOf(n);
+      if (id && withoutGpsIds.length < 15) withoutGpsIds.push(id);
+    }
   }
-  let longDwell = 0;
-  let openPto = 0;
+
+  let over20MinCount = 0;
+  let openPtoCount = 0;
   let orphanSessions = 0;
   for (const e of events) {
-    const dur = Number(e.durationMin ?? e.itStop ?? e.dwell ?? 0);
-    if (Number.isFinite(dur) && dur > 20) longDwell++;
+    const dur = Number(e.durationMin ?? e.itStop ?? e.dwell ?? e.ptoDurationMin ?? 0);
+    if (Number.isFinite(dur) && dur > 20) over20MinCount++;
     const orphan = String(e.orphan || e.status || "");
-    if (orphan === "missing_close" || /open|פתוח/i.test(orphan)) openPto++;
+    if (orphan === "missing_close" || /open|פתוח/i.test(orphan)) openPtoCount++;
     if (!e.matchedNoteId && !e.noteId && !e.docNumber) orphanSessions++;
   }
+
   return {
-    totalNotes: notesSrc.count,
-    notesInContext: notes.length,
-    withGpsMatch: withGps,
+    totalNotes: notes.length,
+    notesWithArchiveGps,
+    notesWithoutGps: Math.max(0, notes.length - notesWithArchiveGps),
+    notesWithoutGpsIds: withoutGpsIds,
     gpsSourceAA_AB: aaAb,
     gpsSourceAH_AJ: ahAj,
-    withoutGps: Math.max(0, notes.length - withGps),
-    craneAnomaliesOver20Min: longDwell,
-    ptoOpen: openPto,
+    totalPtoEvents: events.length,
+    openPtoCount,
+    over20MinCount,
     ptoSessionsWithoutNote: orphanSessions,
-    ptoEventsInContext: events.length,
-    ptoTotal: ptoSrc.count,
   };
 }
 
+async function fetchFullRows(action: string, keys: string[]): Promise<unknown[]> {
+  try {
+    return rowsFrom(await fetchGasAction(action), keys);
+  } catch {
+    return [];
+  }
+}
+
 async function getServerContext(question: string): Promise<string> {
-  const [notes, orders, pto, catalog, gps, customers, dashboard, inquiries, handwritten, customerSites] =
+  // מערכים מלאים ל-liveSummary (לפני compact) + מקורות דחוסים להקשר
+  const [fullNotes, fullPto, fullHandwritten, notes, orders, pto, catalog, gps, customers, dashboard, inquiries, handwritten, customerSites] =
     await Promise.all([
+      fetchFullRows("getNotes", ["notes", "data"]),
+      fetchFullRows("getIturanPto", ["events", "data"]),
+      fetchFullRows("getHandwritten", ["rows", "handwritten", "data"]),
       loadSource("getNotes", ["notes", "data"], question, 12, true),
       loadSource("getOrders", ["orders", "data"], question, 12, true),
       loadSource("getIturanPto", ["events", "data"], question, 12, true),
@@ -167,7 +201,10 @@ async function getServerContext(question: string): Promise<string> {
       loadSource("getHandwritten", ["rows", "handwritten", "data"], question, 10, true),
       loadSource("getCustomerSites", ["sites", "data", "rows"], question, 10, true),
     ]);
-  const liveSummary = buildLiveSummary(notes, pto);
+
+  // מקור אמת לסיכומים — על כל הרשומות, לא על הדגימה
+  const liveSummary = buildLiveSummary(fullNotes, fullPto, fullHandwritten);
+
   return JSON.stringify({
     fetchedAt: new Date().toISOString(),
     liveSummary,
@@ -220,7 +257,12 @@ async function callGemini(instructions: string, input: Msg[]): Promise<string> {
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: instructions }] },
             contents,
-            generationConfig: { temperature: 0.15, maxOutputTokens: 650 },
+            generationConfig: {
+              temperature: 0.15,
+              maxOutputTokens: 2048,
+              // gemini-2.5-flash: אל תשרוף תקציב output על thinking פנימי
+              thinkingConfig: { thinkingBudget: 0 },
+            },
           }),
           signal: AbortSignal.timeout(35_000),
         },
@@ -351,9 +393,12 @@ export const askNoa = createServerFn({ method: "POST" })
     }
 
     const instructions = `את נועה — עוזרת חמ״ל לוגיסטי של ח. סבן. עברית רגילה, חדה ותמציתית.
-אורך: עד 120–150 מילים לשאלה רגילה; עד 220 לסקירת לקוח.
+אורך: עד 150 מילים לשאלה רגילה; עד 250 לסיכום יומי או סקירת לקוח.
 מבנה: מסקנה קצרה -> בולטים או טבלת | -> שורת פעולה אחת. בלי markdown, בלי לנחש.
-liveSummary בתקציר המערכת הוא מקור האמת לסיכומים (תעודות, GPS AA_AB/AH_AJ, חריגות >20, PTO פתוח).
+liveSummary הוא מקור האמת היחיד לסיכומים וספירות:
+  totalNotes, notesWithArchiveGps, notesWithoutGps (+ notesWithoutGpsIds),
+  totalPtoEvents, openPtoCount, over20MinCount.
+השתמשי רק ב-liveSummary לספירות — אל תספרי מתוך sources.*.records (זו דגימה חלקית).
 אל תציגי טלפונים, ח.פ או קישורי Drive.`;
 
     const withContext: Msg[] = [
