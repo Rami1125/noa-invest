@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/AppShell";
 import { type DeliveryNote } from "@/lib/data";
 import { fetchLiveNotes } from "@/lib/api";
 import {
-  crossMatch, rowsToStops, visitsToStops,
+  crossMatch, rowsToStops, visitsToStops, visitStatusLabel,
   normalizePlate, plateOfDriver, kindOfPlate,
   type GpsStop, type IturanVisit, type AuditStatus,
 } from "@/lib/ituran";
