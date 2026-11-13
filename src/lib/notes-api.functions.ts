@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { mapGasHandwrittenRow } from "@/lib/handwritten-sheet";
 
 const DEFAULT_GAS_URL =
   "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
@@ -323,9 +324,10 @@ export const approvalFn = createServerFn({ method: "POST" })
       if (d.approver !== "rami" && d.approver !== "harel") throw new Error("approver לא תקין");
       return {
         noteId: String(d.noteId),
-        approver: d.approver,
-        note: String(d.note || "").slice(0, 500),
-        auditEvidence: d.auditEvidence && typeof d.auditEvidence === "object" ? d.auditEvidence : {},
+        customer: String(d.customer || ""),
+        signedBy: String(d.signedBy || ""),
+        statusNote: String(d.statusNote || ""),
+        dataUrl: d.dataUrl,
       };
     },
   )
@@ -339,7 +341,7 @@ export const pingFn = createServerFn({ method: "GET" }).handler(async () => {
   return { version: String(data.version || "unknown"), success: true as const };
 });
 
-/** טאב «כתב יד» A:Q — action=getHandwritten ב-Apps Script */
+/** טאב «כתב יד» — action=getHandwritten */
 export type SheetHandwrittenRow = {
   noteDate: string;
   docId: string;
@@ -367,40 +369,26 @@ export const listHandwrittenFn = createServerFn({ method: "POST" }).handler(asyn
   for (let i = 0; i < raw.length; i++) {
     const item = raw[i];
     if (!item || typeof item !== "object") continue;
-    const o = item as Record<string, unknown>;
-    const docId = String(o.docId || o["מס' תעודת משלוח"] || "")
-      .replace(/\s+/g, "")
-      .replace(/\.0+$/, "");
-    const durationRaw = o.durationMin ?? o["משך מנוף (דקות)"] ?? o["משך מנוף"];
-    let durationMin: number | null = null;
-    if (typeof durationRaw === "number" && Number.isFinite(durationRaw)) {
-      durationMin = Math.round(durationRaw * 10) / 10;
-    } else {
-      const m = String(durationRaw || "").match(/(\d+(?:\.\d+)?)/);
-      if (m) durationMin = Math.round(Number(m[1]) * 10) / 10;
-    }
+    const mapped = mapGasHandwrittenRow(item as Record<string, unknown>, i);
+    if (!mapped) continue;
     rows.push({
-      noteDate: String(o.noteDate || o["תאריך תעודה"] || ""),
-      docId,
-      orderId: String(o.orderId || o["מס' הזמנה"] || "")
-        .replace(/\s+/g, "")
-        .replace(/\.0+$/, ""),
-      customerNo: String(o.customerNo || o["מס' לקוח"] || "")
-        .replace(/\s+/g, "")
-        .replace(/\.0+$/, ""),
-      customerName: String(o.customerName || o["שם לקוח"] || ""),
-      city: String(o.city || o["עיר"] || ""),
-      address: String(o.address || o["כתובת אספקה"] || ""),
-      driverTruck: String(o.driverTruck || o["נהג / משאית"] || ""),
-      craneOpenHe: String(o.craneOpenHe || o["שעת פתיחת מנוף (כתב יד)"] || ""),
-      craneCloseHe: String(o.craneCloseHe || o["שעת סגירת מנוף (כתב יד)"] || ""),
-      durationMin,
-      craneType: String(o.craneType || o["סוג מנוף"] || ""),
-      returnsText: String(o.returnsText || o["החזרות / זיכויים בכתב יד"] || ""),
-      fieldNotes: String(o.fieldNotes || o["הערות שטח בכתב יד"] || ""),
-      warehouseStamp: String(o.warehouseStamp || o["חתימת אישור / חותמת מחסן"] || ""),
-      returnApprovalStatus: String(o.returnApprovalStatus || o["סטטוס אישור החזרה"] || ""),
-      driveUrl: String(o.driveUrl || o["קישור לתעודה ב-Drive"] || ""),
+      noteDate: mapped.noteDate,
+      docId: mapped.docId,
+      orderId: mapped.orderId,
+      customerNo: mapped.customerNo,
+      customerName: mapped.customerName,
+      city: mapped.city,
+      address: mapped.address,
+      driverTruck: mapped.driverTruck,
+      craneOpenHe: mapped.craneOpenHe,
+      craneCloseHe: mapped.craneCloseHe,
+      durationMin: mapped.durationMin,
+      craneType: mapped.craneType,
+      returnsText: mapped.returnsText,
+      fieldNotes: mapped.fieldNotes,
+      warehouseStamp: mapped.warehouseStamp,
+      returnApprovalStatus: mapped.returnApprovalStatus,
+      driveUrl: mapped.driveUrl,
     });
   }
   return {
