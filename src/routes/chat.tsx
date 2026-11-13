@@ -16,6 +16,7 @@ import {
   Plug,
   AlertTriangle,
   Search,
+  Copy,
 } from "lucide-react";
 import noa from "@/assets/noa.jpg";
 import { NotePreviewCard, type NoteCardData } from "@/components/chat/NotePreviewCard";
@@ -35,7 +36,6 @@ import { askNoa } from "@/lib/ai.functions";
 import { type DeliveryNote } from "@/lib/data";
 import { pairPtoEvents, analyzePto } from "@/lib/smart-dispatch/pto-pairing";
 import {
-  buildNoaContext,
   evidenceFromMeta,
   EVIDENCE_LABEL_HE,
   formatPtoOpeningsSummary,
@@ -75,7 +75,7 @@ type ChatMessage = {
   noteCard?: NoteCardData;
 };
 
-const PTO_LOOKBACK_MS = 7 * 24 * 3600 * 1000;
+const PTO_LOOKBACK_MS = 30 * 24 * 3600 * 1000;
 
 function ChatScreen() {
   const { customerNo: customerNoFromSearch } = Route.useSearch();
@@ -147,12 +147,12 @@ function ChatScreen() {
         "נועה בחמ״ל — גישה לכל טאבי הגיליון: ארכיון תעודות, מילון_לוגיסט, איתוראן_PTO / סשנים_PTO, לקוחות, אתרים, הזמנות.\n\n" +
         "אפשר לשלוף כל נתון, לבקש פקודת מצגת/וידאו/דוח ל-NotebookLM Studio, ולסמן חריגי מנוף.",
       quickActions: [
-        { id: "w1", label: "סיכום תעודות", query: "תני סיכום של התעודות האחרונות בגיליון", icon: "file" },
-        { id: "w2", label: "פתיחות מנוף", query: "כמה פעמים נפתח מנוף לפי טאב איתוראן PTO וסשנים_PTO?", icon: "gauge" },
-        { id: "w3", label: "חריגי PTO", query: "הציגי חריגי מנוף: פריקות מעל 30 דקות וסשנים ללא תעודה", icon: "alert" },
-        { id: "w4", label: "פקודת מצגת", query: "כתבי פקודה מוכנה להעתקה ל-NotebookLM Studio ליצירת מצגת רנטגן תפעולית מהנתונים החיים", icon: "file" },
-        { id: "w5", label: "פקודת וידאו", query: "כתבי פקודת וידאו 60–90 שנ׳ ל-NotebookLM/Gemini על בסיס KPI ותעודות ומנוף", icon: "gauge" },
-        { id: "w6", label: "דוח חריגים", query: "כתבי פקודת דוח תפעולי עם הדגשת חריגים (PTO ארוך, ללא תעודה, בירורים) להנהלה", icon: "alert" },
+        { id: "w1", label: "סיכום יומי", query: "תני סיכום יומי: תעודות + PTO + כמה עם GPS מארכיון וכמה חריגות", icon: "file" },
+        { id: "w2", label: "חריגי מנוף", query: "הציגי חריגי מנוף: שהיות מעל 20 דק׳ / פער כתב יד / סשנים ללא תעודה", icon: "alert" },
+        { id: "w3", label: "תעודות ללא GPS", query: "כמה תעודות ללא hasGpsMatch וללא sheet_AA_AB או sheet_AH_AJ? רשימה קצרה", icon: "search" },
+        { id: "w4", label: "PTO פתוח", query: "כמה סשני PTO פתוחים (יתומים) ואיפה?", icon: "gauge" },
+        { id: "w5", label: "פקודת מצגת", query: "כתבי פקודה מוכנה להעתקה ל-NotebookLM Studio ליצירת מצגת רנטגן תפעולית מהנתונים החיים", icon: "file" },
+        { id: "w6", label: "דוח הנהלה", query: "כתבי פקודת דוח תפעולי עם הדגשת חריגים (PTO ארוך, ללא תעודה, בירורים) להנהלה", icon: "alert" },
       ],
     },
   ]);
@@ -290,7 +290,7 @@ function ChatScreen() {
           } else {
             pushNoa({
               text:
-                "לא נמצאו אירועי פתיחת מנוף בטאב איתוראן_PTO בטווח שנטען (7 ימים אחרונים).\n\n" +
+                "לא נמצאו אירועי פתיחת מנוף בטאב איתוראן_PTO בטווח שנטען (30 ימים אחרונים).\n\n" +
                 "אפשר לרענן או לבדוק קליטת מיילי איתוראן.",
               statusTag: "מאומת · אין נתונים",
             });
@@ -302,11 +302,11 @@ function ChatScreen() {
         const isSlidesCmd = /פקודת מצגת|notebooklm.*מצגת|מצגת רנטגן|ליצירת מצגת/i.test(text);
         const isVideoCmd = /פקודת וידאו|וידאו 60|סרטון|gemini.*וידאו/i.test(text);
         const isReportCmd = /דוח תפעולי|דוח חריג|הדגשת חריג|פקודת דוח/i.test(text);
-        const isPtoAnomaly = /חריג.*מנוף|מעל 30|ללא תעודה|יתומ/i.test(text) && /מנוף|pto|סשן/i.test(text);
+        const isPtoAnomaly = /חריג.*מנוף|מעל 20|מעל 30|ללא תעודה|יתומ/i.test(text) && /מנוף|pto|סשן|כתב.?יד/i.test(text);
 
         if (isSlidesCmd || isVideoCmd || isReportCmd || isPtoAnomaly) {
           const longPto = sessions
-            .filter((s) => Number(s.durationMin || 0) >= 30)
+            .filter((s) => Number(s.durationMin || 0) > 20)
             .slice(0, 10)
             .map(
               (s) =>
@@ -319,7 +319,7 @@ function ChatScreen() {
           if (isPtoAnomaly && !isReportCmd) {
             pushNoa({
               text:
-                `חריגי מנוף (איתוראן_PTO / סשנים_PTO)\n\n${kpi}\n\nפריקות ≥30 דק׳:\n${longPto || "- אין בטווח"}\n\nסשנים ללא תעודה: ${unmatched}`,
+                `חריגי מנוף (איתוראן_PTO / סשנים_PTO)\n\n${kpi}\n\nפריקות >20 דק׳:\n${longPto || "- אין בטווח"}\n\nסשנים ללא תעודה: ${unmatched}`,
               statusTag: "מאומת · חריגי PTO",
             });
             setIsThinking(false);
@@ -341,7 +341,7 @@ function ChatScreen() {
               "2. KPI ארגוני",
               "3. תעודות משלוח אחרונות",
               "4. מנוף PTO — פתיחות/סגירות וזמנים",
-              "5. חריגים (≥30 דק׳ / ללא תעודה)",
+              "5. חריגים (>20 דק׳ / ללא תעודה)",
               "6. הצלבה תעודה↔כתובת↔מנוף",
               "7. המלצות לסידור",
               "8. סיכום + CTA להראל וראמי",
@@ -366,7 +366,7 @@ function ChatScreen() {
               "[00–12] כותרת + KPI",
               "[12–35] תעודות ואתרים",
               "[35–55] מנוף PTO וזמני פריקה",
-              "[55–75] חריגים (מעל 30 דק׳ / ללא תעודה)",
+              "[55–75] חריגים (מעל 20 דק׳ / ללא תעודה)",
               "[75–90] המלצות + CTA",
               "",
               "חריגים:",
@@ -389,7 +389,7 @@ function ChatScreen() {
               kpi,
               "",
               "חריגים לסימון בולט:",
-              "פריקות מנוף ≥30 דק׳:",
+              "פריקות מנוף >20 דק׳:",
               longPto || "- אין בטווח",
               `סשני PTO ללא תעודה: ${unmatched}`,
               "",
@@ -405,37 +405,6 @@ function ChatScreen() {
           }
         }
 
-        const context = buildNoaContext({
-          meta: brainMeta,
-          fetchedAt: new Date().toLocaleString("he-IL"),
-          notes: notes as unknown as Record<string, unknown>[],
-          visits: sessions.map((s) => ({
-            truck: s.truck,
-            driver: s.driver,
-            fullAddress: s.address,
-            address: s.address,
-            noteIds: s.matchedNoteId ? [s.matchedNoteId] : [],
-            ituranArrive: s.openIso,
-            ituranDepart: s.closeIso,
-            durationMin: s.durationMin,
-            ptoOpenTime: s.openIso,
-            ptoCloseTime: s.closeIso,
-            ptoDurationMin: s.durationMin,
-          })),
-          ptoSessions: sessions.map((s) => ({
-            truck: s.truck,
-            driver: s.driver,
-            address: s.address,
-            openIso: s.openIso,
-            closeIso: s.closeIso,
-            durationMin: s.durationMin,
-            matchedNoteId: s.matchedNoteId,
-            orphan: s.orphan,
-            date: s.date,
-          })),
-          discrepancies: [],
-          question: text,
-        });
 
         const history = [...messages, { id: "tmp", sender: "user" as const, text, time: now() }]
           .filter((m) => m.id !== "m0")
@@ -446,14 +415,26 @@ function ChatScreen() {
           }));
 
         const res = await askNoa({
-          data: { messages: history, context, customerNo: detectedCustomerNo },
+          data: { messages: history, customerNo: detectedCustomerNo },
         });
+
+        const suggested: QuickAction[] = Array.isArray(res.suggestedQuestions)
+          ? res.suggestedQuestions.map((s: { id?: string; label: string; query: string; icon?: QuickAction["icon"] }, i: number) => ({
+              id: s.id || `sq-${i}`,
+              label: s.label,
+              query: s.query,
+              icon: s.icon === "alert" || s.icon === "gauge" || s.icon === "search" || s.icon === "file" || s.icon === "plug"
+                ? s.icon
+                : "file",
+            }))
+          : [];
 
         pushNoa({
           text: res.text,
           statusTag: detectedCustomerNo
             ? `תיק לקוח ${detectedCustomerNo}`
             : `מאומת · ${evidenceLabel}`,
+          quickActions: suggested.length ? suggested : undefined,
         });
       } catch (err) {
         pushNoa({
@@ -512,7 +493,31 @@ function ChatScreen() {
         {messages.map((m) => (
           <div key={m.id} className={m.sender === "user" ? "flex justify-start" : "flex justify-end"}>
             <div className={"max-w-[min(100%,36rem)] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed " + (m.sender === "user" ? "bg-emerald-600/90 text-white" : "border border-white/10 bg-white/5 text-slate-100")}>
-              {m.statusTag && <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-emerald-300/90">{m.statusTag}</div>}
+              <div className="mb-1 flex items-center justify-between gap-2">
+                {m.statusTag ? (
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-300/90">{m.statusTag}</div>
+                ) : (
+                  <span />
+                )}
+                {m.sender === "noa" && (
+                  <button
+                    type="button"
+                    title="העתק לווטסאפ / הנהלה"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(m.text).then(
+                        () => {
+                          /* soft feedback via title swap not needed */
+                        },
+                        () => undefined,
+                      );
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300 hover:bg-white/10"
+                  >
+                    <Copy className="h-3 w-3" />
+                    העתק
+                  </button>
+                )}
+              </div>
               {m.sender === "noa" ? <NoaMessageBody text={m.text} /> : <div className="whitespace-pre-wrap">{m.text}</div>}
               {m.noteCard && <div className="mt-2"><NotePreviewCard note={m.noteCard} /></div>}
               {m.quickActions && m.quickActions.length > 0 && (
@@ -540,11 +545,11 @@ function ChatScreen() {
         <div className="mb-2 flex flex-wrap gap-1.5">
           {[
             { label: "סיכום תעודות", q: "תני סיכום של התעודות האחרונות בגיליון" },
-            { label: "PTO", q: "כמה פעמים נפתח מנוף לפי טאב איתוראן PTO וסשנים_PTO?" },
-            { label: "חריגים", q: "הציגי חריגי מנוף: פריקות מעל 30 דקות וסשנים ללא תעודה" },
+            { label: "PTO פתוח", q: "כמה סשני PTO פתוחים (יתומים) ואיפה?" },
+            { label: "חריגי מנוף", q: "הציגי חריגי מנוף: שהיות מעל 20 דק׳ / פער כתב יד / סשנים ללא תעודה" },
             { label: "מצגת", q: "כתבי פקודה מוכנה להעתקה ל-NotebookLM Studio ליצירת מצגת רנטגן תפעולית מהנתונים החיים" },
             { label: "וידאו", q: "כתבי פקודת וידאו 60–90 שנ׳ ל-NotebookLM/Gemini על בסיס KPI ותעודות ומנוף" },
-            { label: "דוח", q: "כתבי פקודת דוח תפעולי עם הדגשת חריגים (PTO ארוך, ללא תעודה, בירורים) להנהלה" },
+            { label: "דוח הנהלה", q: "כתבי פקודת דוח תפעולי עם הדגשת חריגים (PTO ארוך, ללא תעודה, בירורים) להנהלה" },
           ].map((x) => (
             <button key={x.label} type="button" onClick={() => void handleSend(x.q)} className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-bold text-slate-200 hover:bg-white/10">
               {x.label}
@@ -561,8 +566,14 @@ function ChatScreen() {
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend();
+              }
+            }}
             rows={2}
-            placeholder="שאלה על תעודה, לקוח, מנוף, מצגת…"
+            placeholder="שאלה על תעודה, לקוח, מנוף, מצגת… (Enter לשליחה)"
             className="min-h-[44px] flex-1 resize-none rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
           />
           <button type="submit" disabled={isThinking || !input.trim()} className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-600 text-white disabled:opacity-40">
