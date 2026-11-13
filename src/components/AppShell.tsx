@@ -20,6 +20,7 @@ import {
   ScanSearch,
   GraduationCap,
   Warehouse,
+  Boxes,
 } from "lucide-react";
 import { type ReactNode, useState, useEffect, useRef } from "react";
 import { useLocation, Link } from "@tanstack/react-router";
@@ -41,6 +42,7 @@ const DESKTOP_NAV = [
   { to: "/harel", label: "משימות הראל", icon: Crown },
   { to: "/order-console", label: "הזמנה חדשה", icon: PackagePlus },
   { to: "/orders", label: "הזמנות בסידור", icon: ClipboardList },
+  { to: "/stock", label: "מלאי חי", icon: Boxes },
   { to: "/notes-explorer", label: "ארכיון תעודות", icon: Archive },
   { to: "/notes", label: "תעודות משלוח", icon: FileText },
   { to: "/catalog", label: "קטלוג לוגיסטי", icon: BookOpen },
@@ -97,7 +99,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       toast.message("מערכת נועה מוכנה", {
         description: `סטטוס נטען · ${new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}`,
       });
-      // אין playDispatchChime בטעינה — Chrome חוסם AudioContext בלי gesture
     }, 600);
     return () => window.clearTimeout(timer);
   }, []);
