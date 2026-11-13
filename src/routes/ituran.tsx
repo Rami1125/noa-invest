@@ -33,7 +33,7 @@ import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/ituran")({
-  head: () => ({ meta: [{ title: "\u05de\u05d5\u05d3\u05d9\u05e2\u05d9\u05df \u05d0\u05d9\u05ea\u05d5\u05e8\u05d0\u05df \u2014 \u05e0\u05d5\u05e2\u05d4 | \u05d7. \u05e1\u05d1\u05df" }] }),
+  head: () => ({ meta: [{ title: "מודיעין איתוראן — נועה | ח. סבן" }] }),
   component: IturanIntelligencePage,
 });
 
@@ -41,13 +41,12 @@ type MainTab = "overview" | "anomalies" | "match" | "pto" | "sites" | "sources";
 type StopsSource = "sheet-stops" | "sheet-visits" | "upload" | "none";
 const PTO_LOOKBACK_MS = 90 * 24 * 3600 * 1000;
 
-/** נ\u05d5\u05e8\u05de\u05dc\u05d9\u05d6\u05e6\u05d9\u05d9\u05ea \u05ea\u05d0\u05e8\u05d9\u05da: Date JS / yyyy-MM-dd / dd/MM/yyyy → dd/MM/yyyy */
+/** נרמול תאריך: Date JS / yyyy-MM-dd / dd/MM/yyyy → dd/MM/yyyy */
 function normalizeAnyDate(raw?: string): string {
   const s = String(raw || "").trim();
   if (!s) return "";
   const fromNorm = normNoteDate(s);
   if (fromNorm) return fromNorm;
-  // "Wed Oct 28 2026 ..." א\u05d5 ISO
   const t = Date.parse(s);
   if (!Number.isNaN(t)) {
     return new Date(t).toLocaleDateString("en-GB", { timeZone: "Asia/Jerusalem" });
@@ -128,7 +127,6 @@ function IturanIntelligencePage() {
     return analyzePto(pairPtoEvents(ptoQuery.data?.events ?? []), notes).sessions;
   }, [ptoQuery.data, notes]);
 
-  /** מ\u05e4\u05ea noteId → ס\u05e9\u05df PTO ש\u05db\u05d1\u05e8 ק\u05d5\u05e9\u05e8 (כ\u05d5\u05dc\u05dc ג\u05e9\u05e8 analyzePto) */
   const ptoByNoteId = useMemo(() => {
     const map = new Map<string, (typeof ptoSessions)[number]>();
     for (const s of ptoSessions) {
@@ -171,8 +169,7 @@ function IturanIntelligencePage() {
         activeStops,
       );
 
-      // כ\u05d1\u05e8 ש\u05d5\u05d9\u05da מ\u05d5\u05dc stops — ה\u05e9\u05d0\u05e8
-      if (result.status !== "fail" && result.status !== "missing") {
+      if (result.status !== "fail" && (result as { status: string }).status !== "missing") {
         return {
           note, plate, kind, ...result,
           fromSheet: false,
@@ -181,7 +178,6 @@ function IturanIntelligencePage() {
         };
       }
 
-      // ג\u05e9\u05e8: ת\u05e2\u05d5\u05d3\u05d4 ש\u05db\u05d1\u05e8 ק\u05d5\u05e9\u05e8\u05d4 \u05dc\u05e1\u05e9\u05df PTO
       const pto = noteId ? ptoByNoteId.get(noteId) : undefined;
       if (pto) {
         return {
@@ -190,7 +186,7 @@ function IturanIntelligencePage() {
           kind: kindOfPlate(pto.truck || plate),
           status: "ok" as AuditStatus,
           dwell: pto.durationMin,
-          label: "\u05e9\u05d5\u05d9\u05da \u05d3\u05e8\u05da PTO",
+          label: "שויך דרך PTO",
           stop: {
             plate: pto.truck,
             address: pto.address || note.siteAddress || "",
@@ -205,7 +201,6 @@ function IturanIntelligencePage() {
         };
       }
 
-      // ג\u05e9\u05e8: י\u05e9 \u05e9\u05d5\u05e8\u05ea \u05db\u05ea\u05d1 \u05d9\u05d3 \u05dc\u05ea\u05e2\u05d5\u05d3\u05d4
       if (noteId && handwrittenIndex.has(noteId)) {
         const hw = handwrittenIndex.get(noteId)?.[0];
         return {
@@ -214,7 +209,7 @@ function IturanIntelligencePage() {
           kind,
           status: "ok" as AuditStatus,
           dwell: hw?.durationMin ?? null,
-          label: "\u05e9\u05d5\u05d9\u05da \u05d3\u05e8\u05da \u05db\u05ea\u05d1 \u05d9\u05d3",
+          label: "שויך דרך כתב יד",
           stop: undefined as GpsStop | undefined,
           fromSheet: false,
           tier: "review" as MatchTier,
@@ -255,14 +250,14 @@ function IturanIntelligencePage() {
     const longStays = matched
       .filter((m) => m.dwell != null && Number.isFinite(m.dwell) && (m.dwell as number) > STAY_ALERT_MIN)
       .map((m) => {
-        const address = m.note.siteAddress || m.stop?.address || "\u2014";
+        const address = m.note.siteAddress || m.stop?.address || "—";
         const bm = buildBenchmark({ plate: m.plate, kind: m.kind, address, sites });
         const cmp = compareDwell(m.dwell as number, bm);
         return {
-          noteId: m.note.id, customer: m.note.customer || "\u2014", customerNo: m.note.customerNo,
-          address, driver: m.note.driver || m.stop?.driver || "\u2014", plate: m.plate || "\u2014",
+          noteId: m.note.id, customer: m.note.customer || "—", customerNo: m.note.customerNo,
+          address, driver: m.note.driver || m.stop?.driver || "—", plate: m.plate || "—",
           dwell: m.dwell as number, band: dwellBand(m.dwell), tier: m.tier, ptoMin: m.ptoMin,
-          kindLabel: bm.kindLabelHe, fleetRangeLabel: `${bm.fleetMin}\u2013${bm.fleetMax}`,
+          kindLabel: bm.kindLabelHe, fleetRangeLabel: `${bm.fleetMin}–${bm.fleetMax}`,
           siteP80: bm.siteP80, verdict: cmp.verdict, verdictLabel: verdictLabelHe(cmp.verdict),
           summaryHe: cmp.summaryHe, overFleetMin: cmp.overFleetMin, overSiteP80Min: cmp.overSiteP80Min,
         };
@@ -301,10 +296,10 @@ function IturanIntelligencePage() {
       const wb = XLSX.read(buf);
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]!]);
       const stops = rowsToStops(rows);
-      if (!stops.length) { toast.error("\u05dc\u05d0 \u05e0\u05de\u05e6\u05d0\u05d5 \u05e2\u05e6\u05d9\u05e8\u05d5\u05ea"); return; }
+      if (!stops.length) { toast.error("לא נמצאו עצירות"); return; }
       setUploadedStops(stops);
-      toast.success(`\u05e0\u05d8\u05e2\u05e0\u05d5 ${stops.length} \u05e2\u05e6\u05d9\u05e8\u05d5\u05ea`);
-    } catch { toast.error("\u05e9\u05d2\u05d9\u05d0\u05d4 \u05d1\u05e7\u05e8\u05d9\u05d0\u05ea \u05d4\u05e7\u05d5\u05d1\u05e5"); }
+      toast.success(`נטענו ${stops.length} עצירות`);
+    } catch { toast.error("שגיאה בקריאת הקובץ"); }
   };
 
   const refreshAll = () => {
@@ -319,25 +314,25 @@ function IturanIntelligencePage() {
   return (
     <>
       <PageHeader
-        title="\u05de\u05d5\u05d3\u05d9\u05e2\u05d9\u05df \u05d0\u05d9\u05ea\u05d5\u05e8\u05d0\u05df"
-        subtitle="GPS \u00b7 PTO \u00b7 \u05db\u05ea\u05d1 \u05d9\u05d3 \u00b7 \u05d4\u05e6\u05dc\u05d1\u05ea \u05ea\u05e2\u05d5\u05d3\u05d5\u05ea \u2014 \u05de\u05e7\u05d5\u05e8\u05d5\u05ea \u05d2\u05d9\u05dc\u05d9\u05d5\u05df \u05d1\u05dc\u05d1\u05d3"
+        title="מודיעין איתוראן"
+        subtitle="GPS · PTO · כתב יד · הצלבת תעודות — מקורות גיליון בלבד"
         action={
           <button type="button" onClick={refreshAll}
             className="inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold hover:bg-muted">
             <RefreshCw className={cn("h-4 w-4", notesQuery.isFetching && "animate-spin")} />
-            \u05e8\u05e2\u05e0\u05d5\u05df
+            רענון
           </button>
         }
       />
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 md:px-8" dir="rtl">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
-            { label: "\u05ea\u05e2\u05d5\u05d3\u05d5\u05ea", value: stats.notes },
-            { label: `\u05e9\u05d4\u05d9\u05d5\u05ea >${STAY_ALERT_MIN}`, value: anomalies.longStayCount },
-            { label: "\u05d7\u05e8\u05d9\u05d2\u05d5\u05ea \u05d7\u05de\u05d5\u05e8\u05d5\u05ea", value: anomalies.severeCount },
-            { label: "\u05e4\u05ea\u05d9\u05d7\u05d5\u05ea PTO", value: stats.ptoOpens },
-            { label: "PTO \u05e4\u05ea\u05d5\u05d7", value: stats.ptoOpenNow },
-            { label: "\u05dc\u05d0 \u05de\u05e9\u05d5\u05d9\u05da", value: stats.unmatched },
+            { label: "תעודות", value: stats.notes },
+            { label: `שהיות >${STAY_ALERT_MIN}`, value: anomalies.longStayCount },
+            { label: "חריגות חמורות", value: anomalies.severeCount },
+            { label: "פתיחות PTO", value: stats.ptoOpens },
+            { label: "PTO פתוח", value: stats.ptoOpenNow },
+            { label: "לא משויך", value: stats.unmatched },
           ].map((k) => (
             <Card key={k.label} className="rounded-2xl border-border/70 p-4 shadow-sm">
               <div className="text-[11px] font-semibold text-muted-foreground">{k.label}</div>
@@ -348,8 +343,8 @@ function IturanIntelligencePage() {
 
         <div className="flex flex-wrap gap-2 border-b border-border pb-2">
           {([
-            ["overview", "\u05e1\u05e7\u05d9\u05e8\u05d4"], ["anomalies", "\u05d7\u05e8\u05d9\u05d2\u05d5\u05ea"], ["match", "\u05d4\u05e6\u05dc\u05d1\u05ea \u05ea\u05e2\u05d5\u05d3\u05d5\u05ea"],
-            ["pto", "PTO \u05d5\u05de\u05e0\u05d5\u05e3"], ["sites", "\u05d0\u05ea\u05e8\u05d9 \u05dc\u05e7\u05d5\u05d7\u05d5\u05ea"], ["sources", "\u05de\u05e7\u05d5\u05e8\u05d5\u05ea"],
+            ["overview", "סקירה"], ["anomalies", "חריגות"], ["match", "הצלבת תעודות"],
+            ["pto", "PTO ומנוף"], ["sites", "אתרי לקוחות"], ["sources", "מקורות"],
           ] as const).map(([id, label]) => (
             <button key={id} type="button" onClick={() => setTab(id)}
               className={cn("rounded-xl px-3 py-2 text-xs font-bold transition",
@@ -378,14 +373,14 @@ function IturanIntelligencePage() {
         {tab === "match" && (
           <Card className="space-y-3 rounded-2xl border-border p-4">
             <input value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="\u05d7\u05d9\u05e4\u05d5\u05e9 \u05ea\u05e2\u05d5\u05d3\u05d4 / \u05dc\u05e7\u05d5\u05d7 / \u05db\u05ea\u05d5\u05d1\u05ea\u2026"
+              placeholder="חיפוש תעודה / לקוח / כתובת…"
               className="min-h-11 w-full max-w-md rounded-2xl border bg-background px-3 text-sm" />
             <div className="max-h-[32rem] space-y-2 overflow-y-auto">
               {filtered.slice(0, 80).map((m) => (
                 <div key={m.note.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm">
                   <div>
-                    <Link to="/notes/$id" params={{ id: String(m.note.id) }} className="font-bold hover:underline">\u05ea.\u05de. {m.note.id}</Link>
-                    <div className="text-xs text-muted-foreground">{m.note.customer || "\u2014"} \u00b7 {m.note.siteAddress || "\u2014"}</div>
+                    <Link to="/notes/$id" params={{ id: String(m.note.id) }} className="font-bold hover:underline">ת.מ. {m.note.id}</Link>
+                    <div className="text-xs text-muted-foreground">{m.note.customer || "—"} · {m.note.siteAddress || "—"}</div>
                   </div>
                   {tierBadge(m.tier)}
                 </div>
@@ -397,28 +392,28 @@ function IturanIntelligencePage() {
         {tab === "sites" && selectedSite && (
           <div className="space-y-3">
             <input value={siteSearch} onChange={(e) => setSiteSearch(e.target.value)}
-              placeholder="\u05d7\u05d9\u05e4\u05d5\u05e9 \u05d0\u05ea\u05e8\u2026" className="min-h-11 w-full max-w-md rounded-2xl border bg-background px-3 text-sm" />
+              placeholder="חיפוש אתר…" className="min-h-11 w-full max-w-md rounded-2xl border bg-background px-3 text-sm" />
             <IturanSiteCard site={selectedSite} />
           </div>
         )}
 
         {tab === "overview" && (
           <Card className="rounded-2xl border-border p-4 text-sm text-muted-foreground">
-            \u05de\u05e7\u05d5\u05e8 \u05e2\u05e6\u05d9\u05e8\u05d5\u05ea: {stopsSource} \u00b7 \u05db\u05ea\u05d1 \u05d9\u05d3: {handwrittenRows.length} \u05e9\u05d5\u05e8\u05d5\u05ea
-            {handwrittenQuery.isError ? " \u00b7 \u05e9\u05d2\u05d9\u05d0\u05ea \u05d8\u05e2\u05d9\u05e0\u05d4" : ""}
+            מקור עצירות: {stopsSource} · כתב יד: {handwrittenRows.length} שורות
+            {handwrittenQuery.isError ? " · שגיאת טעינה" : ""}
           </Card>
         )}
 
         {tab === "sources" && (
           <Card className="space-y-2 rounded-2xl border-border p-4 text-sm">
-            <h3 className="font-display font-bold">\u05de\u05e7\u05d5\u05e8\u05d5\u05ea \u05e0\u05ea\u05d5\u05e0\u05d9\u05dd</h3>
+            <h3 className="font-display font-bold">מקורות נתונים</h3>
             <ul className="list-disc space-y-1 pe-5 text-muted-foreground">
-              <li><strong className="text-foreground">\u05ea\u05e2\u05d5\u05d3\u05d5\u05ea</strong> — fetchLiveNotes</li>
+              <li><strong className="text-foreground">תעודות</strong> — fetchLiveNotes</li>
               <li><strong className="text-foreground">PTO</strong> — listPtoFn</li>
-              <li><strong className="text-foreground">\u05db\u05ea\u05d1 \u05d9\u05d3</strong> — listHandwrittenFn \u00b7 {handwrittenRows.length} \u05e9\u05d5\u05e8\u05d5\u05ea</li>
+              <li><strong className="text-foreground">כתב יד</strong> — listHandwrittenFn · {handwrittenRows.length} שורות</li>
             </ul>
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold hover:bg-muted">
-              <Upload className="h-4 w-4" /> \u05d4\u05e2\u05dc\u05d0\u05ea \u05e7\u05d5\u05d1\u05e5 \u05e2\u05e6\u05d9\u05e8\u05d5\u05ea
+              <Upload className="h-4 w-4" /> העלאת קובץ עצירות
               <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleUpload} />
             </label>
           </Card>
