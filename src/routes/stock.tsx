@@ -120,7 +120,7 @@ function StockPage() {
       <PageHeader
         title="מלאי תפעולי · זמן אמת"
         subtitle="ביקוש מהזמנות פתוחות + תזרים אספקה מהארכיון · בלי יתרת מדף מומצאת"
-        actions={
+        action={
           <button
             type="button"
             onClick={refetchAll}
