@@ -235,7 +235,7 @@ function compareHand(
       flags: sum.flags,
       kind: "mismatch",
       deltaMin: delta,
-      labelHe: `הזרה: כתב יד ${unload} מול PTO ${ptoMin} (פער ${delta} דק׳)`,
+      labelHe: `עדכון מ: כתב יד ${unload} מול PTO ${ptoMin} (פער ${delta} דק׳)`,
     };
   }
   return {
