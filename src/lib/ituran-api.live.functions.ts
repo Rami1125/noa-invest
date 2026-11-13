@@ -19,8 +19,9 @@ export type IturanPtoResponse = {
   error?: string;
 };
 
-// כתובת ה-Deployment של ה-Apps Script שלך
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
+// כתובת ה-Deployment של ה-Apps Script שלך (GPS מארכיון + hasGpsMatch)
+const GAS_WEB_APP_URL =
+  "https://script.google.com/macros/s/AKfycbx9d834wq3wm3z4XNHu7jIIhamopctR9dlHra6o4-PgYaflAhe3-VcYxNB4_abRkm_yyQ/exec";
 
 /**
  * שליפת אירועי PTO (פתיחת מנוף) מהשרת לפי מספר משאית או נהג
@@ -35,7 +36,7 @@ export async function fetchIturanPtoLive(token: string, truckOrDriver?: string):
     const res = await fetch(url, {
       method: "GET",
       headers: {
-        "Accept": "application/json",
+        Accept: "application/json",
       },
     });
 
@@ -65,10 +66,9 @@ export async function getNoaCranePtoAnswer(token: string, queryText: string): Pr
     return "לא נמצאו במאגר אירועי פתיחת מנוף (PTO) מעודכנים כרגע.";
   }
 
-  // סינון או התאמה לפי השאלה (למשל חכמת / 615)
   const isChakmatQuery = /חכמת|615|מנוף/i.test(queryText);
   const relevantEvents = isChakmatQuery
-    ? result.pto.filter(p => p.plate.includes("615") || /חכמת/i.test(p.driver || ""))
+    ? result.pto.filter((p) => p.plate.includes("615") || /חכמת/i.test(p.driver || ""))
     : result.pto;
 
   if (relevantEvents.length === 0) {

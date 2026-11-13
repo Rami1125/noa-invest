@@ -10,11 +10,13 @@ import { createServerFn } from "@tanstack/react-start";
 import type { GpsStop, IturanVisit, PlateSummary } from "./ituran";
 
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
+  "https://script.google.com/macros/s/AKfycbx9d834wq3wm3z4XNHu7jIIhamopctR9dlHra6o4-PgYaflAhe3-VcYxNB4_abRkm_yyQ/exec";
 
 const BROKEN_GAS_MARKERS = [
   "TwXhw",
   "AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw",
+  "AKfycbw6EmTxp0buRjEl7JfKihm4xq2NP3kbGr46lEEYP3x3Vy_3eVkaOTVzChVjXJn5vaS8Ug",
+  "AKfycbwKcoR9kEAAapY9MZIm5cS3MwCsNhqJZgs6ZQDSB99EVcQZ3it8RoLwfAIuzpZXpALTuw",
 ];
 
 function gasUrl(): string {
@@ -82,33 +84,23 @@ export const listIturanStopsFn = createServerFn({ method: "GET" }).handler(
         (end.includes("T") ? end.slice(11, 16) : "") ||
         "";
       return {
-        plate: String(s.plate || ""),
-        address: String(s.addr || s.address || ""),
+        plate: String(s.plate || s.truck || ""),
+        address: String(s.address || s.site || ""),
         arrive,
         depart,
-        driver: String(s.driver || ""),
-        durationMin: typeof s.min === "number" ? s.min : undefined,
-      };
+        driver: s.driver ? String(s.driver) : undefined,
+        durationMin:
+          s.durationMin != null && Number.isFinite(Number(s.durationMin))
+            ? Number(s.durationMin)
+            : undefined,
+      } as GpsStop;
     });
     return {
       stops,
       pto: Array.isArray(data.pto) ? data.pto : [],
-      plateSummary: Array.isArray(data.plateSummary)
-        ? (data.plateSummary as PlateSummary[])
-        : [],
-      at: (data.at as string) || null,
+      plateSummary: Array.isArray(data.plateSummary) ? (data.plateSummary as PlateSummary[]) : [],
+      at: data.at != null ? String(data.at) : null,
       version: data.version as string | undefined,
-    };
-  },
-);
-
-export const pollIturanNowFn = createServerFn({ method: "POST" }).handler(
-  async (): Promise<{ success: boolean; imported?: boolean; message?: string }> => {
-    const data = await gasGet({ action: "pollIturanNow" });
-    return {
-      success: Boolean(data.success),
-      imported: Boolean(data.imported),
-      message: String(data.message || ""),
     };
   },
 );
