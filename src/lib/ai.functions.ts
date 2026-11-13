@@ -1,6 +1,5 @@
 /**
- * Server-side data retrieval and Gemini integration for Noa.
- * The browser supplies conversation messages and an optional customer key; business data is fetched here.
+ * Server-side Gemini + GAS context for Noa (emergency restored core).
  */
 import { createServerFn } from "@tanstack/react-start";
 import { loadCustomerHistory } from "./customer-history.server";
@@ -11,7 +10,7 @@ type SourceResult = { available: boolean; count: number; records?: unknown[]; er
 
 const MASTER_SHEET_ID = "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw";
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
+  "https://script.google.com/macros/s/AKfycbx9d834wq3wm3z4XNHu7jIIhamopctR9dlHra6o4-PgYaflAhe3-VcYxNB4_abRkm_yyQ/exec";
 
 function gasConfig() {
   const token = process.env["API_TOKEN"];
@@ -69,7 +68,7 @@ function compactSource(
   keys: string[],
   question: string,
   limit = 10,
-  includeUnmatched = false,
+  includeUnmatched = true,
 ): SourceResult {
   const rows = rowsFrom(payload, keys);
   const terms = question.toLowerCase().match(/[a-z0-9א-ת-]{3,}/giu) ?? [];
@@ -98,7 +97,7 @@ async function loadSource(
   keys: string[],
   question: string,
   limit = 10,
-  includeUnmatched = false,
+  includeUnmatched = true,
 ): Promise<SourceResult> {
   try {
     return compactSource(await fetchGasAction(action), keys, question, limit, includeUnmatched);
@@ -111,19 +110,67 @@ async function loadSource(
   }
 }
 
+function buildLiveSummary(notesSrc: SourceResult, ptoSrc: SourceResult): Record<string, unknown> {
+  const notes = (notesSrc.records || []) as Record<string, unknown>[];
+  const events = (ptoSrc.records || []) as Record<string, unknown>[];
+  let withGps = 0;
+  let aaAb = 0;
+  let ahAj = 0;
+  for (const n of notes) {
+    const src = String(n.gpsSource || "");
+    const match =
+      n.hasGpsMatch === true ||
+      n.hasGpsMatch === "true" ||
+      Boolean(n.itArrive && n.itDepart) ||
+      src === "sheet_AA_AB" ||
+      src === "sheet_AH_AJ";
+    if (match) withGps++;
+    if (src === "sheet_AA_AB") aaAb++;
+    if (src === "sheet_AH_AJ") ahAj++;
+  }
+  let longDwell = 0;
+  let openPto = 0;
+  let orphanSessions = 0;
+  for (const e of events) {
+    const dur = Number(e.durationMin ?? e.itStop ?? e.dwell ?? 0);
+    if (Number.isFinite(dur) && dur > 20) longDwell++;
+    const orphan = String(e.orphan || e.status || "");
+    if (orphan === "missing_close" || /open|פתוח/i.test(orphan)) openPto++;
+    if (!e.matchedNoteId && !e.noteId && !e.docNumber) orphanSessions++;
+  }
+  return {
+    totalNotes: notesSrc.count,
+    notesInContext: notes.length,
+    withGpsMatch: withGps,
+    gpsSourceAA_AB: aaAb,
+    gpsSourceAH_AJ: ahAj,
+    withoutGps: Math.max(0, notes.length - withGps),
+    craneAnomaliesOver20Min: longDwell,
+    ptoOpen: openPto,
+    ptoSessionsWithoutNote: orphanSessions,
+    ptoEventsInContext: events.length,
+    ptoTotal: ptoSrc.count,
+  };
+}
+
 async function getServerContext(question: string): Promise<string> {
-  const [notes, orders, pto, catalog, gps, customers, dashboard, inquiries] = await Promise.all([
-    loadSource("getNotes", ["notes", "data"], question, 12),
-    loadSource("getOrders", ["orders", "data"], question, 12),
-    loadSource("getIturanPto", ["events", "data"], question, 12),
-    loadSource("getCatalog", ["rows", "data"], question, 8),
-    loadSource("getGps", ["data", "stops", "gps"], question, 8),
-    loadSource("getCustomers", ["data", "customers"], question, 8),
-    loadSource("getDashboard", ["data"], question, 1, true),
-    loadSource("getRamiInquiries", ["data", "inquiries"], question, 8),
-  ]);
+  const [notes, orders, pto, catalog, gps, customers, dashboard, inquiries, handwritten, customerSites] =
+    await Promise.all([
+      loadSource("getNotes", ["notes", "data"], question, 12, true),
+      loadSource("getOrders", ["orders", "data"], question, 12, true),
+      loadSource("getIturanPto", ["events", "data"], question, 12, true),
+      loadSource("getCatalog", ["rows", "data"], question, 8, true),
+      loadSource("getGps", ["data", "stops", "gps"], question, 8, true),
+      loadSource("getCustomers", ["data", "customers"], question, 8, true),
+      loadSource("getDashboard", ["data"], question, 1, true),
+      loadSource("getRamiInquiries", ["data", "inquiries"], question, 8, true),
+      loadSource("getHandwritten", ["rows", "handwritten", "data"], question, 10, true),
+      loadSource("getCustomerSites", ["sites", "data", "rows"], question, 10, true),
+    ]);
+  const liveSummary = buildLiveSummary(notes, pto);
   return JSON.stringify({
     fetchedAt: new Date().toISOString(),
+    liveSummary,
     sources: {
       notes,
       orders,
@@ -133,6 +180,190 @@ async function getServerContext(question: string): Promise<string> {
       customers,
       dashboard,
       ramiInquiries: inquiries,
+      handwritten,
+      customerSites,
     },
   });
 }
+
+async function sleepMs(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callGemini(instructions: string, input: Msg[]): Promise<string> {
+  const keys = (process.env["GEMINI_API_KEYS"] || process.env["GEMINI_API_KEY"] || "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
+  if (!keys.length) throw new Error("שירות הבינה אינו מוגדר בשרת: חסר GEMINI_API_KEY");
+  const models = (process.env["GEMINI_MODELS"] || "gemini-2.5-flash,gemini-2.5-flash-lite")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  const contents = input.map((message) => ({
+    role: message.role === "assistant" ? "model" : "user",
+    parts: [{ text: message.content }],
+  }));
+  const maxAttempts = Math.max(4, keys.length + 1);
+  let lastStatus = 0;
+  let lastDetail = "";
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const apiKey = keys[attempt % keys.length]!;
+    const model = models[Math.min(attempt, models.length - 1)]!;
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: instructions }] },
+            contents,
+            generationConfig: { temperature: 0.15, maxOutputTokens: 650 },
+          }),
+          signal: AbortSignal.timeout(35_000),
+        },
+      );
+    } catch (err) {
+      lastDetail = err instanceof Error ? err.message.slice(0, 120) : "network";
+      if (attempt < maxAttempts - 1) {
+        await sleepMs(700 * Math.pow(2, attempt));
+        continue;
+      }
+      throw new Error("שירות הבינה לא הגיב בזמן. נסו שוב בעוד רגע.");
+    }
+    if (response.ok) {
+      const result = await response.json();
+      const text = result?.candidates?.[0]?.content?.parts
+        ?.map((part: { text?: string }) => part.text || "")
+        .join("");
+      if (typeof text === "string" && text.trim()) return text.trim();
+      throw new Error("שירות הבינה לא החזיר תשובה תקינה");
+    }
+    lastStatus = response.status;
+    lastDetail = (await response.text()).slice(0, 180);
+    if (response.status === 404) {
+      if (attempt < maxAttempts - 1) continue;
+      throw new Error("מודל הבינה לא נמצא (404). בדקו GEMINI_MODELS.");
+    }
+    if (response.status === 429 || response.status === 503) {
+      if (attempt < maxAttempts - 1) {
+        await sleepMs(900 * Math.pow(2, attempt));
+        continue;
+      }
+      throw new Error("שירות הבינה עמוס או חרג ממכסה (429).");
+    }
+    throw new Error(`שירות הבינה החזיר שגיאה (${response.status}) · מודל: ${model}`);
+  }
+  throw new Error(lastStatus ? `שירות הבינה החזיר שגיאה (${lastStatus})` : `שירות הבינה נכשל: ${lastDetail || "לא ידוע"}`);
+}
+
+function asksCurrentGps(question: string): boolean {
+  return /(?:מיקום|איפה|היכן).{0,45}(?:משאית|רכב)|(?:gps|איתוראן).{0,45}(?:מיקום|משאית|כרגע|עכשיו)/i.test(
+    question,
+  );
+}
+
+const DEFAULT_SUGGESTIONS = [
+  {
+    id: "daily-summary",
+    label: "סיכום יומי",
+    query: "תני סיכום יומי קצר: כמה תעודות, כמה עם GPS מארכיון, כמה PTO פתוח וחריגות מעל 20 דק׳",
+    icon: "file" as const,
+  },
+  {
+    id: "crane-anomalies",
+    label: "חריגי מנוף",
+    query: "הציגי חריגי מנוף: שהיות מעל 20 דקות, פער מול כתב יד, וסשנים ללא תעודה",
+    icon: "alert" as const,
+  },
+  {
+    id: "notes-no-gps",
+    label: "תעודות ללא GPS",
+    query: "כמה תעודות ללא hasGpsMatch / ללא sheet_AA_AB או sheet_AH_AJ? רשימה קצרה",
+    icon: "search" as const,
+  },
+  {
+    id: "pto-open",
+    label: "PTO פתוח",
+    query: "כמה סשני PTO פתוחים (יתומים / missing_close) ואיפה?",
+    icon: "gauge" as const,
+  },
+];
+
+export const askNoa = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => {
+    if (!input || typeof input !== "object") throw new Error("בקשה לא תקינה");
+    const raw = input as { messages?: unknown; customerNo?: unknown };
+    const messages = raw.messages;
+    if (!Array.isArray(messages) || messages.length > 40) throw new Error("היסטוריית שיחה לא תקינה");
+    const clean: Msg[] = messages.slice(-16).map((item) => {
+      if (!item || typeof item !== "object") throw new Error("הודעה לא תקינה");
+      const candidate = item as Record<string, unknown>;
+      if (candidate.role !== "user" && candidate.role !== "assistant") throw new Error("תפקיד הודעה לא תקין");
+      if (typeof candidate.content !== "string") throw new Error("תוכן הודעה לא תקין");
+      return { role: candidate.role, content: candidate.content.slice(0, 2500) };
+    });
+    while (clean[0]?.role === "assistant") clean.shift();
+    if (!clean.some((message) => message.role === "user")) throw new Error("חסרה שאלת משתמש");
+    const customerNo = typeof raw.customerNo === "string" ? raw.customerNo.trim() : "";
+    if (customerNo && !/^\d{3,10}$/.test(customerNo)) throw new Error("מספר לקוח לא תקין");
+    return { messages: clean, customerNo: customerNo || undefined } satisfies AskInput;
+  })
+  .handler(async ({ data }) => {
+    const { messages, customerNo } = data;
+    const question = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+    if (asksCurrentGps(question)) {
+      return {
+        text: "אין לי כרגע מיקום GPS חי ומאומת. אפשר לבדוק עצירות GPS היסטוריות או תעודות עם hasGpsMatch מארכיון.",
+        suggestedQuestions: DEFAULT_SUGGESTIONS,
+      };
+    }
+
+    const serverContext = await getServerContext(question);
+    let customerBlock = "";
+    if (customerNo) {
+      try {
+        const history = await loadCustomerHistory(customerNo);
+        customerBlock =
+          "\n\nתיק לקוח " +
+          customerNo +
+          ":\n" +
+          JSON.stringify({
+            name: history.customer.name,
+            notes: history.notes.slice(0, 12).map((n) => ({
+              id: n.id,
+              date: n.dateIso,
+              address: n.address,
+              driver: n.driver,
+            })),
+            orders: history.orders.slice(0, 8).map((o) => ({
+              id: o.id,
+              date: o.dateIso,
+              status: o.status,
+              address: o.address,
+            })),
+          });
+      } catch {
+        customerBlock = "\n\nתיק לקוח לא זמין כרגע.";
+      }
+    }
+
+    const instructions = `את נועה — עוזרת חמ״ל לוגיסטי של ח. סבן. עברית רגילה, חדה ותמציתית.
+אורך: עד 120–150 מילים לשאלה רגילה; עד 220 לסקירת לקוח.
+מבנה: מסקנה קצרה -> בולטים או טבלת | -> שורת פעולה אחת. בלי markdown, בלי לנחש.
+liveSummary בתקציר המערכת הוא מקור האמת לסיכומים (תעודות, GPS AA_AB/AH_AJ, חריגות >20, PTO פתוח).
+אל תציגי טלפונים, ח.פ או קישורי Drive.`;
+
+    const withContext: Msg[] = [
+      {
+        role: "user",
+        content: `נתוני מערכת (JSON):\n${serverContext}${customerBlock}`,
+      },
+      ...messages,
+    ];
+
+    const text = await callGemini(instructions, withContext);
+    return { text, suggestedQuestions: DEFAULT_SUGGESTIONS };
+  });
