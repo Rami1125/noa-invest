@@ -340,7 +340,9 @@ function ChatScreen() {
           text: res.text,
           statusTag: detectedCustomerNo
             ? `תיק לקוח ${detectedCustomerNo}`
-            : `מאומת · ${evidenceLabel}`,
+            : evidenceLabel.startsWith("מאומת")
+              ? evidenceLabel
+              : `מאומת · ${evidenceLabel}`,
           quickActions: suggested.length ? suggested : undefined,
         });
       } catch (err) {
