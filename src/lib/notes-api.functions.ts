@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { mapGasHandwrittenRow } from "@/lib/handwritten-sheet";
 
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
+  "https://script.google.com/macros/s/AKfycbx9d834wq3wm3z4XNHu7jIIhamopctR9dlHra6o4-PgYaflAhe3-VcYxNB4_abRkm_yyQ/exec";
 
 let activeGasUrl: string | null = null;
 
@@ -12,7 +12,9 @@ function gasUrl(): string {
   if (
     envUrl &&
     (envUrl.includes("TwXhw") ||
-      envUrl.includes("AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw"))
+      envUrl.includes("AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw") ||
+      envUrl.includes("AKfycbw6EmTxp0buRjEl7JfKihm4xq2NP3kbGr46lEEYP3x3Vy_3eVkaOTVzChVjXJn5vaS8Ug") ||
+      envUrl.includes("AKfycbwKcoR9kEAAapY9MZIm5cS3MwCsNhqJZgs6ZQDSB99EVcQZ3it8RoLwfAIuzpZXpALTuw"))
   ) {
     return DEFAULT_GAS_URL;
   }
@@ -131,7 +133,6 @@ export type SheetNote = {
   signedUrl: string;
   ramiApprovedAt: string;
   harelApprovedAt: string;
-  /** GPS מארכיון תעודות (AA:AB / AH:AJ) — מועבר כמו שהוא מ-getNotes */
   itArrive?: string;
   itDepart?: string;
   itStop?: number | null;
@@ -160,7 +161,6 @@ export type SheetPtoEvent = {
 export const listNotesFn = createServerFn({ method: "POST" }).handler(async () => {
   const data = await gasGet({ action: "getNotes", _t: String(Date.now()), nocache: "1" });
   const raw = Array.isArray(data.notes) ? data.notes : [];
-  // שימור מפורש של שדות GPS מארכיון — לא לאבד ב-cast
   const notes: SheetNote[] = raw.map((item) => {
     const r = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
     const itArrive = r.itArrive != null ? String(r.itArrive) : "";
@@ -224,7 +224,13 @@ export const listPtoFn = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const params: Record<string, string> = { action: "getIturanPto", _t: String(Date.now()), nocache: "1" };
-    if (data.since) params.since = data.since;
+    if (data.since) {
+      params.since = data.since;
+    } else {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - 90);
+      params.since = d.toISOString();
+    }
     if (data.truck) params.truck = data.truck;
     const r = await gasGet(params);
     return {
@@ -381,7 +387,6 @@ export const pingFn = createServerFn({ method: "GET" }).handler(async () => {
   return { version: String(data.version || "unknown"), success: true as const };
 });
 
-/** טאב «כתב יד» — action=getHandwritten */
 export type SheetHandwrittenRow = {
   noteDate: string;
   docId: string;
