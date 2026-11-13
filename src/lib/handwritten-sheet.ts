@@ -1,6 +1,8 @@
 /**
- * Tab handwriting helpers — normalizeDocId, extractDocIds, index, match.
+ * טאב «כתב יד» (עם רווח) — נרמול, אינדקס והצלבה לתעודות ולסשני PTO.
+ * מקור אמת בלבד; אין המצאת שעות או תעודות.
  */
+
 export type HandwrittenSheetRow = {
   id: string;
   noteDate: string;
@@ -68,7 +70,9 @@ export function cellStr(v: unknown): string {
 }
 
 export function parseDurationMin(raw: unknown): number | null {
-  if (typeof raw === "number" && Number.isFinite(raw)) return Math.round(raw * 10) / 10;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.round(raw * 10) / 10;
+  }
   const s = cellStr(raw).replace(",", ".");
   if (!s) return null;
   const m = s.match(/(\d+(?:\.\d+)?)/);
@@ -184,6 +188,36 @@ export function matchHandwritten(opts: {
   };
 }
 
+/**
+ * המרת ערך זמן מ-GAS/Sheets ל-HH:mm.
+ * תומך ב: "07:45", "7:45", שבר יום (0.40277…).
+ */
+export function normalizeTimeHe(raw: unknown): string {
+  if (raw == null) return "";
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    let dayFrac = raw;
+    if (raw >= 1 && raw < 24) dayFrac = raw / 24;
+    if (dayFrac >= 0 && dayFrac < 1.5) {
+      const totalMin = Math.round((dayFrac % 1) * 24 * 60);
+      const hh = Math.floor(totalMin / 60) % 24;
+      const mm = totalMin % 60;
+      return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    }
+    return "";
+  }
+  const s = String(raw).trim();
+  if (!s || s === "—" || s === "-") return "";
+  const hm = s.match(/^(\d{1,2}):(\d{2})/);
+  if (hm) return `${hm[1]!.padStart(2, "0")}:${hm[2]}`;
+  if (/^0?\.\d+$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n) && n >= 0 && n < 1.5) return normalizeTimeHe(n);
+  }
+  if (s.includes("1899")) return "";
+  return s;
+}
+
+/** מיפוי שורה גולמית מ-GAS — סכמה חיה: docDate, craneDurationMin, returnsHandwritten… */
 export function mapGasHandwrittenRow(raw: Record<string, unknown>, idx: number): HandwrittenSheetRow | null {
   const get = (...keys: string[]) => {
     for (const k of keys) {
@@ -192,23 +226,25 @@ export function mapGasHandwrittenRow(raw: Record<string, unknown>, idx: number):
     return "";
   };
   const docId = normalizeDocId(get("docId", "מס' תעודת משלוח", "מס׳ תעודת משלוח", "מספר תעודה", "B"));
-  const noteDate = cellStr(get("noteDate", "תאריך תעודה", "A"));
+  const noteDate = cellStr(get("docDate", "noteDate", "תאריך תעודה", "A"));
   const orderId = normalizeDocId(get("orderId", "מס' הזמנה", "מס׳ הזמנה", "C"));
   const customerNo = normalizeDocId(get("customerNo", "מס' לקוח", "מס׳ לקוח", "D"));
   const customerName = cellStr(get("customerName", "שם לקוח", "E"));
   const city = cellStr(get("city", "עיר", "F"));
   const address = cellStr(get("address", "כתובת אספקה", "G"));
-  const driverTruck = cellStr(get("driverTruck", "נהג / משאית", "נהג", "H"));
-  const craneOpenHe = cellStr(get("craneOpenHe", "שעת פתיחת מנוף (כתב יד)", "שעת פתיחת מנוף", "I"));
-  const craneCloseHe = cellStr(get("craneCloseHe", "שעת סגירת מנוף (כתב יד)", "שעת סגירת מנוף", "J"));
-  const durationMin = parseDurationMin(get("durationMin", "משך מנוף (דקות)", "משך מנוף", "K"));
+  const driverTruck = cellStr(get("driver", "driverTruck", "נהג / משאית", "נהג", "H"));
+  const craneOpenHe = normalizeTimeHe(get("craneOpenHe", "שעת פתיחת מנוף (כתב יד)", "שעת פתיחת מנוף", "I"));
+  const craneCloseHe = normalizeTimeHe(get("craneCloseHe", "שעת סגירת מנוף (כתב יד)", "שעת סגירת מנוף", "J"));
+  const durationMin = parseDurationMin(get("craneDurationMin", "durationMin", "משך מנוף (דקות)", "משך מנוף", "K"));
   const craneType = cellStr(get("craneType", "סוג מנוף", "L"));
-  const returnsText = cellStr(get("returnsText", "החזרות / זיכויים בכתב יד", "החזרות", "M"));
-  const fieldNotes = cellStr(get("fieldNotes", "הערות שטח בכתב יד", "הערות שטח", "N"));
-  const warehouseStamp = cellStr(get("warehouseStamp", "חתימת אישור / חותמת מחסן", "חתימת אישור", "O"));
-  const returnApprovalStatus = cellStr(get("returnApprovalStatus", "סטטוס אישור החזרה", "P"));
+  const returnsText = cellStr(get("returnsHandwritten", "returnsText", "החזרות / זיכויים בכתב יד", "החזרות", "M"));
+  const fieldNotes = cellStr(get("notesHandwritten", "fieldNotes", "הערות שטח בכתב יד", "הערות שטח", "N"));
+  const warehouseStamp = cellStr(get("warehouseApproval", "warehouseStamp", "חתימת אישור / חותמת מחסן", "חתימת אישור", "O"));
+  const returnApprovalStatus = cellStr(get("returnStatus", "returnApprovalStatus", "סטטוס אישור החזרה", "P"));
   const driveUrl = cellStr(get("driveUrl", "קישור לתעודה ב-Drive", "קישור לתעודה", "Q"));
+
   if (!docId && !customerName && !craneOpenHe && !fieldNotes && durationMin == null) return null;
+
   return {
     id: `hw-${docId || "x"}-${idx}`,
     noteDate,
