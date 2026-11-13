@@ -156,6 +156,9 @@ export const fmtDate = (d: string) => d.split("-").reverse().join("/");
 /** ברירת המחדל שבה api.ts משתמש כשאין נתונים חיים מהגיליון */
 export const BASE: DeliveryNote[] = NOTES;
 
+/** alias for older imports that expect DEFAULT_NOTES */
+export const DEFAULT_NOTES: DeliveryNote[] = NOTES;
+
 type WeighableItem = { qty: number; weightKg: number };
 type Weighable = { items?: WeighableItem[] | null };
 
