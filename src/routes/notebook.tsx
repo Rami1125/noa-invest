@@ -1,5 +1,5 @@
 /**
- * /notebook — חדר רנטגן תפעולי
+ * /notebook — חדר רנטגן תפעולי ו-Notebook
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { NotebookPage } from "@/components/NotebookPage";
