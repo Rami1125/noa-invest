@@ -106,49 +106,25 @@ export function auditNote(n?: DeliveryNote): {
   const findings: { status: AuditStatus; text: string }[] = [];
   if (!n) return { status: "ok", findings: [{ status: "ok", text: "תעודה בטעינה" }] };
   if (n.live) {
-    findings.push({
-      status: "warn",
-      text: "טרם הוצלב מול קומקס/איתוראן",
-    });
+    findings.push({ status: "warn", text: "טרם הוצלב מול קומקס/איתוראן" });
     const b = n.deposits?.bales60002 || { delivered: 0, billed: 0 };
     const p = n.deposits?.pallets60060 || { delivered: 0, billed: 0 };
-    if (b.delivered) {
-      findings.push({
-        status: "warn",
-        text: `בלות פקדון 60002: ${b.delivered} (טרם הוצלבו מול חיוב)`,
-      });
-    }
-    if (p.delivered) {
-      findings.push({
-        status: "warn",
-        text: `משטחי עץ 60060: ${p.delivered} (טרם הוצלבו מול חיוב)`,
-      });
-    }
+    if (b.delivered) findings.push({ status: "warn", text: `בלות פקדון 60002: ${b.delivered} (טרם הוצלבו מול חיוב)` });
+    if (p.delivered) findings.push({ status: "warn", text: `משטחי עץ 60060: ${p.delivered} (טרם הוצלבו מול חיוב)` });
     return { status: "warn", findings };
   }
   (n.items || []).forEach((i) => {
     if (i.qty !== i.ordered)
-      findings.push({
-        status: "warn",
-        text: `${i.name}: סופק ${i.qty} מול ${i.ordered} בהזמנת קומקס`,
-      });
+      findings.push({ status: "warn", text: `${i.name}: סופק ${i.qty} מול ${i.ordered} בהזמנת קומקס` });
   });
   const b = n.deposits?.bales60002 || { delivered: 0, billed: 0 };
   const p = n.deposits?.pallets60060 || { delivered: 0, billed: 0 };
   if (b.delivered !== b.billed)
-    findings.push({
-      status: "fail",
-      text: `בלות פקדון 60002: ${b.delivered} סופקו, ${b.billed} חויבו`,
-    });
-  else if (b.delivered)
-    findings.push({ status: "ok", text: `בלות 60002 תואמות 1:1 (${b.delivered})` });
+    findings.push({ status: "fail", text: `בלות פקדון 60002: ${b.delivered} סופקו, ${b.billed} חויבו` });
+  else if (b.delivered) findings.push({ status: "ok", text: `בלות 60002 תואמות 1:1 (${b.delivered})` });
   if (p.delivered !== p.billed)
-    findings.push({
-      status: "fail",
-      text: `משטחי עץ 60060: ${p.delivered} סופקו, ${p.billed} חויבו`,
-    });
-  else if (p.delivered)
-    findings.push({ status: "ok", text: `משטחי 60060 תואמים 1:1 (${p.delivered})` });
+    findings.push({ status: "fail", text: `משטחי עץ 60060: ${p.delivered} סופקו, ${p.billed} חויבו` });
+  else if (p.delivered) findings.push({ status: "ok", text: `משטחי 60060 תואמים 1:1 (${p.delivered})` });
   if (n.gps) findings.push({ status: n.gps.status, text: `איתוראן: ${n.gps.note}` });
   if (!findings.some((f) => f.status !== "ok"))
     findings.unshift({ status: "ok", text: "כמויות תואמות להזמנת קומקס" });
