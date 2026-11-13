@@ -1,7 +1,7 @@
 /**
- * /ituran — מרכז מודיעין לוגיסטי (restored)
+ * /ituran — מרכז מודיעין לוגיסטי
  */
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/AppShell";
@@ -24,15 +24,13 @@ import {
   IturanAnomaliesPanel, STAY_ALERT_MIN, dwellBand, type AnomaliesData,
 } from "@/components/IturanAnomaliesPanel";
 import { IturanSiteCard } from "@/components/IturanSiteCard";
-import { IturanPtoAuditPanel as IturanPtoAuditPanelBase } from "@/components/IturanPtoAuditPanel";
+import { IturanPtoAuditPanelWithHandwritten as IturanPtoAuditPanel } from "@/components/IturanPtoAuditPanelWithHandwritten";
 import { buildBenchmark, compareDwell, verdictLabelHe } from "@/lib/dwell-intelligence";
 import { Card } from "@/components/ui/card";
 import { Upload, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
-
-const IturanPtoAuditPanel = IturanPtoAuditPanelBase as React.ComponentType<Record<string, unknown>>;
 
 export const Route = createFileRoute("/ituran")({
   head: () => ({ meta: [{ title: "מודיעין איתוראן — נועה | ח. סבן" }] }),
