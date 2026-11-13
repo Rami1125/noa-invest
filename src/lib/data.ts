@@ -152,3 +152,24 @@ export function fetchGps(): GpsRecord[] {
 
 export const ils = (n: number) => "₪" + n.toLocaleString("he-IL", { maximumFractionDigits: 0 });
 export const fmtDate = (d: string) => d.split("-").reverse().join("/");
+
+/** ברירת המחדל שבה api.ts משתמש כשאין נתונים חיים מהגיליון */
+export const BASE: DeliveryNote[] = NOTES;
+
+type WeighableItem = { qty: number; weightKg: number };
+type Weighable = { items?: WeighableItem[] | null };
+
+/** משקל התעודה בק״ג: כמות × משקל ליחידה, מסוכם על כל הפריטים. */
+export function noteWeightKg(n?: Weighable | null): number {
+  return (n?.items || []).reduce((sum, i) => sum + (Number(i.qty) || 0) * (Number(i.weightKg) || 0), 0);
+}
+
+/** משקל התעודה בטון, מעוגל לשתי ספרות. */
+export function noteWeightTons(n?: Weighable | null): number {
+  return Math.round(noteWeightKg(n) / 10) / 100;
+}
+
+/** מספר שורות הפריטים בתעודה. */
+export function noteItemsCount(n?: Weighable | null): number {
+  return (n?.items || []).length;
+}
