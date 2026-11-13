@@ -183,7 +183,7 @@ export const listPtoFn = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const params: Record<string, string> = { action: "getIturanPto", _t: String(Date.now()), nocache: "1" };
-    if (data.since) params.since = data.since;
+    if (data.since) params.since = data.truck;
     if (data.truck) params.truck = data.truck;
     const r = await gasGet(params);
     return {
@@ -324,10 +324,9 @@ export const approvalFn = createServerFn({ method: "POST" })
       if (d.approver !== "rami" && d.approver !== "harel") throw new Error("approver לא תקין");
       return {
         noteId: String(d.noteId),
-        customer: String(d.customer || ""),
-        signedBy: String(d.signedBy || ""),
-        statusNote: String(d.statusNote || ""),
-        dataUrl: d.dataUrl,
+        approver: d.approver,
+        note: String(d.note || "").slice(0, 500),
+        auditEvidence: d.auditEvidence && typeof d.auditEvidence === "object" ? d.auditEvidence : {},
       };
     },
   )
