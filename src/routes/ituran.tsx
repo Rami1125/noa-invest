@@ -1,51 +1,45 @@
 /**
  * /ituran — מרכז מודיעין לוגיסטי (restored)
  */
+import React, { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/AppShell";
 import { type DeliveryNote } from "@/lib/data";
 import { fetchLiveNotes } from "@/lib/api";
 import {
-  crossMatch, rowsToStops, DRIVER_FLEET, groupStopsByDriver, visitStatusLabel,
-  normalizePlate, plateOfDriver, kindOfPlate, visitsToStops,
+  crossMatch, rowsToStops, visitsToStops,
+  normalizePlate, plateOfDriver, kindOfPlate,
   type GpsStop, type IturanVisit, type AuditStatus,
 } from "@/lib/ituran";
 import { listIturanVisitsFn, listIturanStopsFn } from "@/lib/ituran-api.functions";
 import { listPtoFn, listHandwrittenFn } from "@/lib/notes-api.functions";
 import {
-  indexHandwrittenByDocId,
-  mapGasHandwrittenRow,
-  type HandwrittenSheetRow,
+  indexHandwrittenByDocId, mapGasHandwrittenRow, type HandwrittenSheetRow,
 } from "@/lib/handwritten-sheet";
 import { getSiteAtlasFn } from "@/lib/customer-history.functions";
 import { pairPtoEvents, analyzePto } from "@/lib/smart-dispatch/pto-pairing";
-import {
-  MATCH_TIER_HE, tierFromAudit, type MatchTier,
-} from "@/lib/logistics-intelligence";
+import { MATCH_TIER_HE, tierFromAudit, type MatchTier } from "@/lib/logistics-intelligence";
 import {
   IturanAnomaliesPanel, STAY_ALERT_MIN, dwellBand, type AnomaliesData,
 } from "@/components/IturanAnomaliesPanel";
 import { IturanSiteCard } from "@/components/IturanSiteCard";
-import { IturanPtoAuditPanel } from "@/components/IturanPtoAuditPanel";
-import {
-  buildBenchmark, compareDwell, verdictLabelHe,
-} from "@/lib/dwell-intelligence";
+import { IturanPtoAuditPanel as IturanPtoAuditPanelBase } from "@/components/IturanPtoAuditPanel";
+import { buildBenchmark, compareDwell, verdictLabelHe } from "@/lib/dwell-intelligence";
 import { Card } from "@/components/ui/card";
-import {
-  Upload, RefreshCw,
-} from "lucide-react";
+import { Upload, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
+
+const IturanPtoAuditPanel = IturanPtoAuditPanelBase as React.ComponentType<Record<string, unknown>>;
 
 export const Route = createFileRoute("/ituran")({
   head: () => ({ meta: [{ title: "מודיעין איתוראן — נועה | ח. סבן" }] }),
   component: IturanIntelligencePage,
 });
 
-type MainTab = "overview" | "anomalies" | "match" | "pto" | "sites" | "fleet" | "sources";
+type MainTab = "overview" | "anomalies" | "match" | "pto" | "sites" | "sources";
 type StopsSource = "sheet-stops" | "sheet-visits" | "upload" | "none";
 const PTO_LOOKBACK_MS = 90 * 24 * 3600 * 1000;
 
@@ -71,40 +65,24 @@ function IturanIntelligencePage() {
   const [siteSearch, setSiteSearch] = useState("");
 
   const notesQuery = useQuery<DeliveryNote[]>({
-    queryKey: ["live-notes-ituran"],
-    queryFn: fetchLiveNotes,
-    staleTime: 30_000,
+    queryKey: ["live-notes-ituran"], queryFn: fetchLiveNotes, staleTime: 30_000,
   });
   const visitsQuery = useQuery({
-    queryKey: ["ituran-visits"],
-    queryFn: () => listIturanVisitsFn(),
-    staleTime: 60_000,
-    retry: 1,
+    queryKey: ["ituran-visits"], queryFn: () => listIturanVisitsFn(), staleTime: 60_000, retry: 1,
   });
   const stopsQuery = useQuery({
-    queryKey: ["ituran-stops"],
-    queryFn: () => listIturanStopsFn(),
-    staleTime: 60_000,
-    retry: 1,
+    queryKey: ["ituran-stops"], queryFn: () => listIturanStopsFn(), staleTime: 60_000, retry: 1,
   });
   const ptoQuery = useQuery({
     queryKey: ["ituran-pto-intel"],
-    queryFn: () =>
-      listPtoFn({ data: { since: new Date(Date.now() - PTO_LOOKBACK_MS).toISOString() } }),
-    staleTime: 60_000,
-    retry: 1,
+    queryFn: () => listPtoFn({ data: { since: new Date(Date.now() - PTO_LOOKBACK_MS).toISOString() } }),
+    staleTime: 60_000, retry: 1,
   });
   const sitesQuery = useQuery({
-    queryKey: ["site-atlas-ituran"],
-    queryFn: () => getSiteAtlasFn(),
-    staleTime: 60_000,
-    retry: 1,
+    queryKey: ["site-atlas-ituran"], queryFn: () => getSiteAtlasFn(), staleTime: 60_000, retry: 1,
   });
   const handwrittenQuery = useQuery({
-    queryKey: ["handwritten-tab"],
-    queryFn: () => listHandwrittenFn(),
-    staleTime: 60_000,
-    retry: 1,
+    queryKey: ["handwritten-tab"], queryFn: () => listHandwrittenFn(), staleTime: 60_000, retry: 1,
   });
 
   const notes = notesQuery.data || [];
@@ -119,26 +97,19 @@ function IturanIntelligencePage() {
     });
     return out;
   }, [handwrittenQuery.data]);
-  const handwrittenIndex = useMemo(
-    () => indexHandwrittenByDocId(handwrittenRows),
-    [handwrittenRows],
-  );
+  const handwrittenIndex = useMemo(() => indexHandwrittenByDocId(handwrittenRows), [handwrittenRows]);
 
   const { activeStops, stopsSource } = useMemo(() => {
-    if (uploadedStops?.length)
-      return { activeStops: uploadedStops, stopsSource: "upload" as StopsSource };
+    if (uploadedStops?.length) return { activeStops: uploadedStops, stopsSource: "upload" as StopsSource };
     const fromProps = stopsQuery.data?.stops || [];
-    if (fromProps.length)
-      return { activeStops: fromProps, stopsSource: "sheet-stops" as StopsSource };
+    if (fromProps.length) return { activeStops: fromProps, stopsSource: "sheet-stops" as StopsSource };
     const fromVisits = visitsToStops(sheetVisits);
-    if (fromVisits.length)
-      return { activeStops: fromVisits, stopsSource: "sheet-visits" as StopsSource };
+    if (fromVisits.length) return { activeStops: fromVisits, stopsSource: "sheet-visits" as StopsSource };
     return { activeStops: [] as GpsStop[], stopsSource: "none" as StopsSource };
   }, [uploadedStops, stopsQuery.data, sheetVisits]);
 
   const ptoSessions = useMemo(() => {
-    const paired = pairPtoEvents(ptoQuery.data?.events ?? []);
-    return analyzePto(paired, notes).sessions;
+    return analyzePto(pairPtoEvents(ptoQuery.data?.events ?? []), notes).sessions;
   }, [ptoQuery.data, notes]);
 
   const matched = useMemo(
@@ -156,38 +127,18 @@ function IturanIntelligencePage() {
             dwell: pre.itStop ?? null,
             label: visitStatusLabel(status),
             stop: {
-              plate: pre.truck,
-              address: pre.itAddr || pre.address,
-              arrive: pre.itArrive,
-              depart: pre.itDepart,
-              driver: pre.driver,
-              durationMin: pre.itStop,
+              plate: pre.truck, address: pre.itAddr || pre.address,
+              arrive: pre.itArrive, depart: pre.itDepart, driver: pre.driver, durationMin: pre.itStop,
             } as GpsStop,
             fromSheet: true,
             tier: tierFromAudit(status, true),
             ptoMin: ptoNum != null && Number.isFinite(ptoNum) ? ptoNum : null,
           };
         }
-        const plate =
-          normalizePlate(String((note as { truck?: string }).truck || "")) ||
-          plateOfDriver(note.driver) ||
-          "";
+        const plate = normalizePlate(String((note as { truck?: string }).truck || "")) || plateOfDriver(note.driver) || "";
         const kind = kindOfPlate(plate);
-        const result = crossMatch(
-          { ...note, siteAddress: note.siteAddress, date: note.date },
-          kind,
-          plate,
-          activeStops,
-        );
-        return {
-          note,
-          plate,
-          kind,
-          ...result,
-          fromSheet: false,
-          tier: tierFromAudit(result.status, false),
-          ptoMin: null as number | null,
-        };
+        const result = crossMatch({ ...note, siteAddress: note.siteAddress, date: note.date }, kind, plate, activeStops);
+        return { note, plate, kind, ...result, fromSheet: false, tier: tierFromAudit(result.status, false), ptoMin: null as number | null };
       }),
     [notes, activeStops, sheetVisits],
   );
@@ -197,8 +148,7 @@ function IturanIntelligencePage() {
     if (!q) return matched;
     return matched.filter((m) =>
       [m.note.id, m.note.customer, m.note.customerNo, m.note.siteAddress, m.note.driver, m.plate]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q)),
+        .filter(Boolean).some((v) => String(v).toLowerCase().includes(q)),
     );
   }, [matched, search]);
 
@@ -221,31 +171,18 @@ function IturanIntelligencePage() {
         const bm = buildBenchmark({ plate: m.plate, kind: m.kind, address, sites });
         const cmp = compareDwell(m.dwell as number, bm);
         return {
-          noteId: m.note.id,
-          customer: m.note.customer || "—",
-          customerNo: m.note.customerNo,
-          address,
-          driver: m.note.driver || m.stop?.driver || "—",
-          plate: m.plate || "—",
-          dwell: m.dwell as number,
-          band: dwellBand(m.dwell),
-          tier: m.tier,
-          ptoMin: m.ptoMin,
-          kindLabel: bm.kindLabelHe,
-          fleetRangeLabel: `${bm.fleetMin}–${bm.fleetMax}`,
-          siteP80: bm.siteP80,
-          verdict: cmp.verdict,
-          verdictLabel: verdictLabelHe(cmp.verdict),
-          summaryHe: cmp.summaryHe,
-          overFleetMin: cmp.overFleetMin,
-          overSiteP80Min: cmp.overSiteP80Min,
+          noteId: m.note.id, customer: m.note.customer || "—", customerNo: m.note.customerNo,
+          address, driver: m.note.driver || m.stop?.driver || "—", plate: m.plate || "—",
+          dwell: m.dwell as number, band: dwellBand(m.dwell), tier: m.tier, ptoMin: m.ptoMin,
+          kindLabel: bm.kindLabelHe, fleetRangeLabel: `${bm.fleetMin}–${bm.fleetMax}`,
+          siteP80: bm.siteP80, verdict: cmp.verdict, verdictLabel: verdictLabelHe(cmp.verdict),
+          summaryHe: cmp.summaryHe, overFleetMin: cmp.overFleetMin, overSiteP80Min: cmp.overSiteP80Min,
         };
       })
       .sort((a, b) => b.dwell - a.dwell);
     return {
       longStays,
-      craneOpens: [...ptoSessions]
-        .filter((s) => s.openIso && s.orphan !== "missing_open")
+      craneOpens: [...ptoSessions].filter((s) => s.openIso && s.orphan !== "missing_open")
         .sort((a, b) => new Date(b.openIso).getTime() - new Date(a.openIso).getTime()),
       openPto: ptoSessions.filter((s) => s.orphan === "missing_close"),
       unmatchedNotes: matched.filter((m) => m.tier === "unmatched" || m.status === "fail"),
@@ -266,8 +203,7 @@ function IturanIntelligencePage() {
 
   const selectedSite =
     sites.find((s) => (s.siteKey || `${s.city}|${s.address}`) === selectedSiteKey) ||
-    filteredSites[0] ||
-    sites[0];
+    filteredSites[0] || sites[0];
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -277,15 +213,10 @@ function IturanIntelligencePage() {
       const wb = XLSX.read(buf);
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]!]);
       const stops = rowsToStops(rows);
-      if (!stops.length) {
-        toast.error("לא נמצאו עצירות בקובץ");
-        return;
-      }
+      if (!stops.length) { toast.error("לא נמצאו עצירות"); return; }
       setUploadedStops(stops);
       toast.success(`נטענו ${stops.length} עצירות`);
-    } catch {
-      toast.error("שגיאה בקריאת הקובץ");
-    }
+    } catch { toast.error("שגיאה בקריאת הקובץ"); }
   };
 
   const refreshAll = () => {
@@ -303,7 +234,8 @@ function IturanIntelligencePage() {
         title="מודיעין איתוראן"
         subtitle="GPS · PTO · כתב יד · הצלבת תעודות — מקורות גיליון בלבד"
         action={
-          <button type="button" onClick={refreshAll} className="inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold hover:bg-muted">
+          <button type="button" onClick={refreshAll}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold hover:bg-muted">
             <RefreshCw className={cn("h-4 w-4", notesQuery.isFetching && "animate-spin")} />
             רענון
           </button>
@@ -328,35 +260,20 @@ function IturanIntelligencePage() {
 
         <div className="flex flex-wrap gap-2 border-b border-border pb-2">
           {([
-            ["overview", "סקירה"],
-            ["anomalies", "חריגות"],
-            ["match", "הצלבת תעודות"],
-            ["pto", "PTO ומנוף"],
-            ["sites", "אתרי לקוחות"],
-            ["sources", "מקורות"],
+            ["overview", "סקירה"], ["anomalies", "חריגות"], ["match", "הצלבת תעודות"],
+            ["pto", "PTO ומנוף"], ["sites", "אתרי לקוחות"], ["sources", "מקורות"],
           ] as const).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={cn(
-                "rounded-xl px-3 py-2 text-xs font-bold transition",
-                tab === id ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground hover:bg-muted",
-              )}
-            >
+            <button key={id} type="button" onClick={() => setTab(id)}
+              className={cn("rounded-xl px-3 py-2 text-xs font-bold transition",
+                tab === id ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground hover:bg-muted")}>
               {label}
             </button>
           ))}
         </div>
 
         {tab === "anomalies" && (
-          <IturanAnomaliesPanel
-            anomalies={anomalies}
-            onOpenSitesTab={(address) => {
-              setTab("sites");
-              if (address) setSiteSearch(address);
-            }}
-          />
+          <IturanAnomaliesPanel anomalies={anomalies}
+            onOpenSitesTab={(address) => { setTab("sites"); if (address) setSiteSearch(address); }} />
         )}
 
         {tab === "pto" && (
@@ -372,22 +289,15 @@ function IturanIntelligencePage() {
 
         {tab === "match" && (
           <Card className="space-y-3 rounded-2xl border-border p-4">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+            <input value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder="חיפוש תעודה / לקוח / כתובת…"
-              className="min-h-11 w-full max-w-md rounded-2xl border bg-background px-3 text-sm"
-            />
+              className="min-h-11 w-full max-w-md rounded-2xl border bg-background px-3 text-sm" />
             <div className="max-h-[32rem] space-y-2 overflow-y-auto">
               {filtered.slice(0, 80).map((m) => (
                 <div key={m.note.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm">
                   <div>
-                    <Link to="/notes/$id" params={{ id: String(m.note.id) }} className="font-bold hover:underline">
-                      ת.מ. {m.note.id}
-                    </Link>
-                    <div className="text-xs text-muted-foreground">
-                      {m.note.customer || "—"} · {m.note.siteAddress || "—"}
-                    </div>
+                    <Link to="/notes/$id" params={{ id: String(m.note.id) }} className="font-bold hover:underline">ת.מ. {m.note.id}</Link>
+                    <div className="text-xs text-muted-foreground">{m.note.customer || "—"} · {m.note.siteAddress || "—"}</div>
                   </div>
                   {tierBadge(m.tier)}
                 </div>
@@ -398,12 +308,8 @@ function IturanIntelligencePage() {
 
         {tab === "sites" && selectedSite && (
           <div className="space-y-3">
-            <input
-              value={siteSearch}
-              onChange={(e) => setSiteSearch(e.target.value)}
-              placeholder="חיפוש אתר…"
-              className="min-h-11 w-full max-w-md rounded-2xl border bg-background px-3 text-sm"
-            />
+            <input value={siteSearch} onChange={(e) => setSiteSearch(e.target.value)}
+              placeholder="חיפוש אתר…" className="min-h-11 w-full max-w-md rounded-2xl border bg-background px-3 text-sm" />
             <IturanSiteCard site={selectedSite} />
           </div>
         )}
@@ -421,9 +327,7 @@ function IturanIntelligencePage() {
             <ul className="list-disc space-y-1 pe-5 text-muted-foreground">
               <li><strong className="text-foreground">תעודות</strong> — fetchLiveNotes</li>
               <li><strong className="text-foreground">PTO</strong> — listPtoFn</li>
-              <li>
-                <strong className="text-foreground">כתב יד</strong> — listHandwrittenFn · {handwrittenRows.length} שורות
-              </li>
+              <li><strong className="text-foreground">כתב יד</strong> — listHandwrittenFn · {handwrittenRows.length} שורות</li>
             </ul>
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold hover:bg-muted">
               <Upload className="h-4 w-4" /> העלאת קובץ עצירות
