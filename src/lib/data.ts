@@ -8,20 +8,16 @@ export type Driver = {
   truck: string;
 };
 
-export type Customer = {
-  id: string;
-  name: string;
-  phone?: string;
-  city?: string;
-  address?: string;
-  notes?: string;
-};
-
 export type DeliveryItem = {
-  sku: string;
   name: string;
+  /** SKU from the source sheet, when supplied separately from the display name. */
+  sku?: string;
   qty: number;
-  unit?: string;
+  ordered: number;
+  price?: number;
+  weightKg: number;
+  unit: string;
+  deposit?: number;
 };
 
 export type DeliveryNote = {
@@ -57,4 +53,126 @@ export type DeliveryNote = {
   /** קישור ל-PDF החתום בתיקיית הלקוח, אם כבר נחתם */
   signedUrl?: string;
   noteStage?: "pending_rami" | "returned_to_rami" | "pending_harel" | "pending_harel_reply" | "final";
+  /** true = נקרא מהגיליון החי; כמויות/פקדונות/איתוראן עדיין לא הוצלבו */
+  live?: boolean;
 };
+
+export type Order = {
+  id: string;
+  receivedDate: string;
+  date: string;
+  window: string;
+  orderId: string;
+  noteId: string;
+  customerNo: string;
+  customer: string;
+  phone: string;
+  address: string;
+  yard: Yard;
+  driverId: string | null;
+  driverName: string;
+  status: "פתוחה" | "בהעמסה" | "בדרך" | "סופק" | "הועבר לתעודת משלוח";
+  items: { name: string; qty: number; unit: string; weightKg: number; deposit?: boolean }[];
+  notes: string;
+  weightTons: number;
+  wazeLink: string;
+  depositBales: string;
+  depositPallets: string;
+};
+
+export type GpsRecord = {
+  id: string;
+  driverId: string;
+  lat: number;
+  lng: number;
+  speed: number;
+  status: string;
+  updatedAt: string;
+};
+
+export const DRIVERS: Driver[] = [
+  { id: "hikmat", name: "חכמת מנוף", phone: "050-0000000", truck: "מנוף 18000 (מרצדס 615-41-002)" },
+  { id: "ali", name: "עלי משאית", phone: "050-1111111", truck: "משאית שטוחה 818000" },
+];
+
+export const GPS_RECORDS: GpsRecord[] = [];
+
+export const NOTES: DeliveryNote[] = [];
+
+export function auditNote(n?: DeliveryNote): {
+  status: AuditStatus;
+  findings: { status: AuditStatus; text: string }[];
+} {
+  const findings: { status: AuditStatus; text: string }[] = [];
+  if (!n) return { status: "ok", findings: [{ status: "ok", text: "תעודה בטעינה" }] };
+  if (n.live) {
+    findings.push({
+      status: "warn",
+      text: "טרם הוצלב מול קומקס/איתוראן",
+    });
+    const b = n.deposits?.bales60002 || { delivered: 0, billed: 0 };
+    const p = n.deposits?.pallets60060 || { delivered: 0, billed: 0 };
+    if (b.delivered) {
+      findings.push({
+        status: "warn",
+        text: `בלות פקדון 60002: ${b.delivered} (טרם הוצלבו מול חיוב)`,
+      });
+    }
+    if (p.delivered) {
+      findings.push({
+        status: "warn",
+        text: `משטחי עץ 60060: ${p.delivered} (טרם הוצלבו מול חיוב)`,
+      });
+    }
+    return { status: "warn", findings };
+  }
+  (n.items || []).forEach((i) => {
+    if (i.qty !== i.ordered)
+      findings.push({
+        status: "warn",
+        text: `${i.name}: סופק ${i.qty} מול ${i.ordered} בהזמנת קומקס`,
+      });
+  });
+  const b = n.deposits?.bales60002 || { delivered: 0, billed: 0 };
+  const p = n.deposits?.pallets60060 || { delivered: 0, billed: 0 };
+  if (b.delivered !== b.billed)
+    findings.push({
+      status: "fail",
+      text: `בלות פקדון 60002: ${b.delivered} סופקו, ${b.billed} חויבו`,
+    });
+  else if (b.delivered)
+    findings.push({ status: "ok", text: `בלות 60002 תואמות 1:1 (${b.delivered})` });
+  if (p.delivered !== p.billed)
+    findings.push({
+      status: "fail",
+      text: `משטחי עץ 60060: ${p.delivered} סופקו, ${p.billed} חויבו`,
+    });
+  else if (p.delivered)
+    findings.push({ status: "ok", text: `משטחי 60060 תואמים 1:1 (${p.delivered})` });
+  if (n.gps) findings.push({ status: n.gps.status, text: `איתוראן: ${n.gps.note}` });
+  if (!findings.some((f) => f.status !== "ok"))
+    findings.unshift({ status: "ok", text: "כמויות תואמות להזמנת קומקס" });
+  const status: AuditStatus = findings.some((f) => f.status === "fail")
+    ? "fail"
+    : findings.some((f) => f.status === "warn")
+      ? "warn"
+      : "ok";
+  return { status, findings };
+}
+
+export const ORDERS: Order[] = [];
+
+export function fetchNotes(): DeliveryNote[] {
+  return NOTES;
+}
+
+export function fetchLiveOrders(): Order[] {
+  return ORDERS;
+}
+
+export function fetchGps(): GpsRecord[] {
+  return GPS_RECORDS;
+}
+
+export const ils = (n: number) => "₪" + n.toLocaleString("he-IL", { maximumFractionDigits: 0 });
+export const fmtDate = (d: string) => d.split("-").reverse().join("/");
