@@ -1,11 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 
-/**
- * גשר שרת ← Google Apps Script (Api.js).
- * הטוקן נשאר בשרת בלבד (process.env.API_TOKEN) ולא מגיע לדפדפן.
- * אין כאן שום נתוני דמה: כל כשל נזרק כשגיאה ומוצג למשתמש.
- */
-
 const DEFAULT_GAS_URL =
   "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
 
@@ -14,7 +8,6 @@ let activeGasUrl: string | null = null;
 function gasUrl(): string {
   if (activeGasUrl) return activeGasUrl;
   const envUrl = process.env["GAS_URL"];
-  // אם הכתובת בסביבה מכילה את הפריסה השבורה הידועה שאין בה doGet/doPost, השתמש ישירות ב-DEFAULT_GAS_URL
   if (
     envUrl &&
     (envUrl.includes("TwXhw") ||
@@ -34,25 +27,20 @@ function apiToken(): string {
 function extractDiagnosticFromText(text: string, host: string, status: number): string {
   let issue = "";
   if (text.includes("nicht gefunden: doGet") || text.includes("not found: doGet")) {
-    issue = "פונקציית doGet לא נמצאה בקובץ הפריסה ב-Apps Script (Script function not found: doGet)";
+    issue = "פונקציית doGet לא נמצאה בקובץ הפריסה ב-Apps Script";
   } else if (text.includes("nicht gefunden: doPost") || text.includes("not found: doPost")) {
-    issue =
-      "פונקציית doPost לא נמצאה בקובץ הפריסה ב-Apps Script (Script function not found: doPost)";
+    issue = "פונקציית doPost לא נמצאה בקובץ הפריסה ב-Apps Script";
   } else if (
     text.includes("accounts.google.com") ||
     text.includes("ServiceLogin") ||
     text.includes("Sign in")
   ) {
-    issue = "דף התחברות של Google — הרשאת הגישה אינה מוגדרת ל-Anyone (כל אחד)";
-  } else if (text.includes("DocumentApp.create") || text.includes("documents")) {
-    issue =
-      "שגיאת הרשאה DocumentApp ב-Apps Script. יש לעדכן את קובץ Code.gs לשמירה ישירה דרך DriveApp";
+    issue = "דף התחברות של Google — הרשאת הגישה אינה מוגדרת ל-Anyone";
   } else {
     issue = `התקבל תוכן HTML באורך ${text.length} תווים במקום JSON`;
   }
-
   const snippet = text.slice(0, 200).replace(/\s+/g, " ").trim();
-  return `תשובה לא תקינה מ-Apps Script (HTTP ${status}) מאת ${host}. פירוט: ${issue}. [קטע תגובה: "${snippet}"]. סיבות אפשריות: 1) פונקציית doGet/doPost חסרה בפרויקט Apps Script שנפרס 2) גישת הפריסה אינה Anyone 3) כתובת פריסה ישנה.`;
+  return `תשובה לא תקינה מ-Apps Script (HTTP ${status}) מאת ${host}. פירוט: ${issue}. [קטע: "${snippet}"]`;
 }
 
 async function parseGas(res: Response, attemptedUrl: string): Promise<Record<string, unknown>> {
@@ -76,7 +64,6 @@ async function gasGet(params: Record<string, string>) {
     for (const [k, v] of Object.entries({ ...params, token: apiToken() })) u.searchParams.set(k, v);
     return u;
   };
-
   try {
     const res = await fetch(buildUrl(primaryUrl), {
       redirect: "follow",
@@ -85,21 +72,13 @@ async function gasGet(params: Record<string, string>) {
     return await parseGas(res, primaryUrl);
   } catch (err) {
     if (primaryUrl !== DEFAULT_GAS_URL) {
-      console.warn(
-        `[AppsScript] primary GAS_URL failed: ${err instanceof Error ? err.message : String(err)}. Falling back to DEFAULT_GAS_URL...`,
-      );
-      try {
-        const fallbackRes = await fetch(buildUrl(DEFAULT_GAS_URL), {
-          redirect: "follow",
-          signal: AbortSignal.timeout(30_000),
-        });
-        const result = await parseGas(fallbackRes, DEFAULT_GAS_URL);
-        activeGasUrl = DEFAULT_GAS_URL;
-        return result;
-      } catch (fallbackErr) {
-        console.error("[AppsScript] Fallback DEFAULT_GAS_URL also failed:", fallbackErr);
-        throw fallbackErr;
-      }
+      const fallbackRes = await fetch(buildUrl(DEFAULT_GAS_URL), {
+        redirect: "follow",
+        signal: AbortSignal.timeout(30_000),
+      });
+      const result = await parseGas(fallbackRes, DEFAULT_GAS_URL);
+      activeGasUrl = DEFAULT_GAS_URL;
+      return result;
     }
     throw err;
   }
@@ -117,22 +96,13 @@ async function gasPost(body: Record<string, unknown>) {
     });
     return await parseGas(res, targetUrl);
   };
-
   try {
     return await executePost(primaryUrl);
   } catch (err) {
     if (primaryUrl !== DEFAULT_GAS_URL) {
-      console.warn(
-        `[AppsScript] primary POST failed: ${err instanceof Error ? err.message : String(err)}. Falling back to DEFAULT_GAS_URL...`,
-      );
-      try {
-        const result = await executePost(DEFAULT_GAS_URL);
-        activeGasUrl = DEFAULT_GAS_URL;
-        return result;
-      } catch (fallbackErr) {
-        console.error("[AppsScript] Fallback POST also failed:", fallbackErr);
-        throw fallbackErr;
-      }
+      const result = await executePost(DEFAULT_GAS_URL);
+      activeGasUrl = DEFAULT_GAS_URL;
+      return result;
     }
     throw err;
   }
@@ -176,7 +146,6 @@ export const listNotesFn = createServerFn({ method: "POST" }).handler(async () =
   return { notes: (Array.isArray(data.notes) ? data.notes : []) as SheetNote[] };
 });
 
-/** שליפת מניפסט קומקס דרך שרת מאומת; אין קריאת GAS ישירה מהדפדפן. */
 export const getManifestFn = createServerFn({ method: "POST" })
   .inputValidator((d: { orderId: string }) => {
     const orderId = String(d?.orderId || "").trim();
@@ -205,7 +174,6 @@ export const getManifestFn = createServerFn({ method: "POST" })
     };
   });
 
-/** אירועי פתיחה/סגירה של PTO מהטאב איתוראן_PTO (נקלטים ממיילי איתוראן) */
 export const listPtoFn = createServerFn({ method: "POST" })
   .inputValidator((d: { since?: string; truck?: string } | undefined) => {
     const since = String(d?.since || "");
@@ -223,7 +191,6 @@ export const listPtoFn = createServerFn({ method: "POST" })
     };
   });
 
-/** קטלוג מוצרים מהטאב "מילון לוגיסטי" */
 export const getCatalogFn = createServerFn({ method: "POST" }).handler(async () => {
   const r = await gasGet({ action: "getCatalog" });
   return {
@@ -288,7 +255,6 @@ export type LogisticsAuditState = {
   decisions: Record<string, LogisticsAuditDecision>;
 };
 
-/** שליפת טיוטת בקרת לוגיסטיקה משותפת לפי מספר תעודה. */
 export const getLogisticsAuditFn = createServerFn({ method: "POST" })
   .inputValidator((d: { noteId: string }) => {
     const noteId = String(d?.noteId || "").trim();
@@ -298,21 +264,39 @@ export const getLogisticsAuditFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<LogisticsAuditState> => {
     const result = await gasGet({ action: "getLogisticsAuditEvidence", noteId: data.noteId });
     return {
-      evidence: (result.evidence && typeof result.evidence === "object" ? result.evidence : {}) as Record<string, string>,
-      decisions: (result.decisions && typeof result.decisions === "object" ? result.decisions : {}) as Record<string, LogisticsAuditDecision>,
+      evidence: (result.evidence && typeof result.evidence === "object" ? result.evidence : {}) as Record<
+        string,
+        string
+      >,
+      decisions: (result.decisions && typeof result.decisions === "object" ? result.decisions : {}) as Record<
+        string,
+        LogisticsAuditDecision
+      >,
     };
   });
 
-/** שמירת כל האסמכתאות והחלטות ראמי בשרת לפני אישור. */
 export const saveLogisticsAuditFn = createServerFn({ method: "POST" })
-  .inputValidator((d: { noteId: string; evidence: Record<string, string>; decisions: Record<string, LogisticsAuditDecision> }) => {
-    const noteId = String(d?.noteId || "").trim();
-    if (!noteId || !d.evidence || typeof d.evidence !== "object" || Array.isArray(d.evidence) ||
-        !d.decisions || typeof d.decisions !== "object" || Array.isArray(d.decisions)) {
-      throw new Error("חסרים פרטי שמירת בקרת לוגיסטיקה");
-    }
-    return { noteId, evidence: d.evidence, decisions: d.decisions };
-  })
+  .inputValidator(
+    (d: {
+      noteId: string;
+      evidence: Record<string, string>;
+      decisions: Record<string, LogisticsAuditDecision>;
+    }) => {
+      const noteId = String(d?.noteId || "").trim();
+      if (
+        !noteId ||
+        !d.evidence ||
+        typeof d.evidence !== "object" ||
+        Array.isArray(d.evidence) ||
+        !d.decisions ||
+        typeof d.decisions !== "object" ||
+        Array.isArray(d.decisions)
+      ) {
+        throw new Error("חסרים פרטי שמירת בקרת לוגיסטיקה");
+      }
+      return { noteId, evidence: d.evidence, decisions: d.decisions };
+    },
+  )
   .handler(async ({ data }) => {
     const result = await gasPost({
       action: "saveLogisticsAuditEvidence",
@@ -320,25 +304,31 @@ export const saveLogisticsAuditFn = createServerFn({ method: "POST" })
       evidence: data.evidence,
       decisions: data.decisions,
     });
-    return { success: result.success === true, savedAt: String(result.savedAt || ""), count: Number(result.count || 0) };
+    return {
+      success: result.success === true,
+      savedAt: String(result.savedAt || ""),
+      count: Number(result.count || 0),
+    };
   });
 
 export const approvalFn = createServerFn({ method: "POST" })
-  .inputValidator((d: { 
-    noteId: string; 
-    approver: "rami" | "harel"; 
-    note?: string; 
-    auditEvidence?: Record<string, string>; // 👈 הוספת השדה
-  }) => {
-    if (!String(d?.noteId || "")) throw new Error("חסר מספר תעודה");
-    if (d.approver !== "rami" && d.approver !== "harel") throw new Error("approver לא תקין");
-    return {
-      noteId: String(d.noteId),
-      approver: d.approver,
-      note: String(d.note || "").slice(0, 500),
-      auditEvidence: d.auditEvidence && typeof d.auditEvidence === "object" ? d.auditEvidence : {}, // 👈 העברה הלאה ל-GAS
-    };
-  })
+  .inputValidator(
+    (d: {
+      noteId: string;
+      approver: "rami" | "harel";
+      note?: string;
+      auditEvidence?: Record<string, string>;
+    }) => {
+      if (!String(d?.noteId || "")) throw new Error("חסר מספר תעודה");
+      if (d.approver !== "rami" && d.approver !== "harel") throw new Error("approver לא תקין");
+      return {
+        noteId: String(d.noteId),
+        approver: d.approver,
+        note: String(d.note || "").slice(0, 500),
+        auditEvidence: d.auditEvidence && typeof d.auditEvidence === "object" ? d.auditEvidence : {},
+      };
+    },
+  )
   .handler(async ({ data }) => {
     await gasPost({ action: "submitApproval", ...data });
     return { success: true as const };
@@ -347,4 +337,76 @@ export const approvalFn = createServerFn({ method: "POST" })
 export const pingFn = createServerFn({ method: "GET" }).handler(async () => {
   const data = await gasGet({ action: "ping" });
   return { version: String(data.version || "unknown"), success: true as const };
+});
+
+/** טאב «כתב יד» A:Q — action=getHandwritten ב-Apps Script */
+export type SheetHandwrittenRow = {
+  noteDate: string;
+  docId: string;
+  orderId: string;
+  customerNo: string;
+  customerName: string;
+  city: string;
+  address: string;
+  driverTruck: string;
+  craneOpenHe: string;
+  craneCloseHe: string;
+  durationMin: number | null;
+  craneType: string;
+  returnsText: string;
+  fieldNotes: string;
+  warehouseStamp: string;
+  returnApprovalStatus: string;
+  driveUrl: string;
+};
+
+export const listHandwrittenFn = createServerFn({ method: "POST" }).handler(async () => {
+  const r = await gasGet({ action: "getHandwritten" });
+  const raw = Array.isArray(r.rows) ? r.rows : Array.isArray(r.handwritten) ? r.handwritten : [];
+  const rows: SheetHandwrittenRow[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const docId = String(o.docId || o["מס' תעודת משלוח"] || "")
+      .replace(/\s+/g, "")
+      .replace(/\.0+$/, "");
+    const durationRaw = o.durationMin ?? o["משך מנוף (דקות)"] ?? o["משך מנוף"];
+    let durationMin: number | null = null;
+    if (typeof durationRaw === "number" && Number.isFinite(durationRaw)) {
+      durationMin = Math.round(durationRaw * 10) / 10;
+    } else {
+      const m = String(durationRaw || "").match(/(\d+(?:\.\d+)?)/);
+      if (m) durationMin = Math.round(Number(m[1]) * 10) / 10;
+    }
+    rows.push({
+      noteDate: String(o.noteDate || o["תאריך תעודה"] || ""),
+      docId,
+      orderId: String(o.orderId || o["מס' הזמנה"] || "")
+        .replace(/\s+/g, "")
+        .replace(/\.0+$/, ""),
+      customerNo: String(o.customerNo || o["מס' לקוח"] || "")
+        .replace(/\s+/g, "")
+        .replace(/\.0+$/, ""),
+      customerName: String(o.customerName || o["שם לקוח"] || ""),
+      city: String(o.city || o["עיר"] || ""),
+      address: String(o.address || o["כתובת אספקה"] || ""),
+      driverTruck: String(o.driverTruck || o["נהג / משאית"] || ""),
+      craneOpenHe: String(o.craneOpenHe || o["שעת פתיחת מנוף (כתב יד)"] || ""),
+      craneCloseHe: String(o.craneCloseHe || o["שעת סגירת מנוף (כתב יד)"] || ""),
+      durationMin,
+      craneType: String(o.craneType || o["סוג מנוף"] || ""),
+      returnsText: String(o.returnsText || o["החזרות / זיכויים בכתב יד"] || ""),
+      fieldNotes: String(o.fieldNotes || o["הערות שטח בכתב יד"] || ""),
+      warehouseStamp: String(o.warehouseStamp || o["חתימת אישור / חותמת מחסן"] || ""),
+      returnApprovalStatus: String(o.returnApprovalStatus || o["סטטוס אישור החזרה"] || ""),
+      driveUrl: String(o.driveUrl || o["קישור לתעודה ב-Drive"] || ""),
+    });
+  }
+  return {
+    rows,
+    tab: String(r.tab || "כתב יד"),
+    fetchedAt: String((r.meta as { fetchedAt?: string } | undefined)?.fetchedAt || r.fetchedAt || ""),
+    totalRows: Number(r.totalRows || rows.length),
+  };
 });
