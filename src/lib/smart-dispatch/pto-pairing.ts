@@ -12,7 +12,7 @@ import { summarizeVisitHandwrittenTimes } from "./handwritten-crane";
 export type PtoRow = {
   truck: string;
   driver: string;
-  eventType: string; // pto_open | pto_close | pto_unknown
+  eventType: string;
   eventTimeIso: string;
   address: string;
 };
@@ -25,7 +25,7 @@ export type PtoSession = {
   openIso: string;
   closeIso?: string;
   durationMin: number | null;
-  date: string; // dd/MM/yyyy (שעון ישראל)
+  date: string;
   orphan?: "missing_open" | "missing_close";
   matchedNoteId?: string;
 };
@@ -47,7 +47,6 @@ export const israelTime = (iso: string): string =>
 
 const ts = (iso: string) => new Date(iso).getTime();
 
-/** זיווג פתיחה→סגירה לפי משאית. פתיחה בלי סגירה / סגירה בלי פתיחה = יתום. */
 export function pairPtoEvents(rows: PtoRow[]): PtoSession[] {
   const valid = rows.filter(
     (r) => r.truck && !Number.isNaN(ts(r.eventTimeIso)) && r.eventType !== "pto_unknown",
@@ -114,7 +113,6 @@ export function pairPtoEvents(rows: PtoRow[]): PtoSession[] {
   return sessions.sort((a, b) => ts(b.openIso) - ts(a.openIso));
 }
 
-/** נרמול תאריך תעודה (dd/mm/yyyy או yyyy-mm-dd) ל-dd/MM/yyyy */
 export function normNoteDate(raw?: string): string {
   const s = String(raw || "");
   const iso = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
@@ -125,24 +123,82 @@ export function normNoteDate(raw?: string): string {
   return `${m[1]!.padStart(2, "0")}/${m[2]!.padStart(2, "0")}/${y}`;
 }
 
-/** אם בשדה הנהג מופיע רישוי - חייב להתאים למשאית. אם לא מופיע - לא מסננים. */
 function truckCompatible(note: DeliveryNote, truck: string): boolean {
   const plate = (note.driver || "").match(/\d{3}-\d{2}-\d{3}/)?.[0];
-  return !plate || plate === truck;
+  if (!plate) return true;
+  const norm = (p: string) => p.replace(/[^\d]/g, "");
+  return norm(plate) === norm(truck);
+}
+
+function addressTokens(raw?: string): string[] {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/["'\u05f4\u05f3`.,;()]/g, " ")
+    .replace(/\b(\u05e8\u05d7\u05d5\u05d1|\u05e8\u05d7|\u05e9\u05d3|\u05e9\u05d3\u05e8\u05d5\u05ea|\u05e7\u05e8\u05d9\u05d9\u05ea|\u05e7\u05e8\u05d9\u05ea|\u05d9\u05e9\u05e8\u05d0\u05dc)\b/g, " ")
+    .split(/\s+/)
+    .map((t) => t.replace(/^\u05d4/, ""))
+    .filter((t) => t.length >= 2);
+}
+
+function softAddressScore(noteAddr?: string, ptoAddr?: string): number {
+  const strict = scoreAddressMatch(noteAddr, ptoAddr);
+  let score = strict.score;
+  if (strict.isMatch) score += 2;
+
+  const a = addressTokens(noteAddr);
+  const b = addressTokens(ptoAddr);
+  if (!a.length || !b.length) return score;
+
+  let overlap = 0;
+  for (const t of a) {
+    if (b.some((x) => x === t || x.includes(t) || t.includes(x))) overlap += 1;
+  }
+  score += Math.min(overlap, 4);
+
+  const numA = String(noteAddr || "").match(/\b\d+[\u05d0-\u05ea]?\b/);
+  const numB = String(ptoAddr || "").match(/\b\d+[\u05d0-\u05ea]?\b/);
+  if (numA && numB && numA[0] === numB[0]) score += 2;
+
+  return score;
+}
+
+function datesNear(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const parse = (d: string) => {
+    const m = d.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (!m) return null;
+    return Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  };
+  const ta = parse(a);
+  const tb = parse(b);
+  if (ta == null || tb == null) return false;
+  return Math.abs(ta - tb) <= 24 * 3600 * 1000;
 }
 
 export type PtoAnalysis = {
   sessions: PtoSession[];
   issues: DiscrepancyItem[];
+  matchStats: {
+    total: number;
+    matched: number;
+    byAddress: number;
+    byDateTruckOnly: number;
+    unmatched: number;
+  };
 };
 
-/** הצלבת סשני PTO מול תעודות + איתור חריגות */
 export function analyzePto(rawSessions: PtoSession[], notes: DeliveryNote[]): PtoAnalysis {
   const issues: DiscrepancyItem[] = [];
   const sessions = rawSessions.map((s) => ({ ...s }));
+  const usedNoteIds = new Set<string>();
 
-  for (const s of sessions) {
-    const base = { truck: s.truck, driver: s.driver, address: s.address || "כתובת לא ידועה" };
+  type Cand = { sessionIdx: number; note: DeliveryNote; score: number; tier: number };
+  const candidates: Cand[] = [];
+
+  for (let i = 0; i < sessions.length; i++) {
+    const s = sessions[i]!;
+    const base = { truck: s.truck, driver: s.driver, address: s.address || "\u05db\u05ea\u05d5\u05d1\u05ea \u05dc\u05d0 \u05d9\u05d3\u05d5\u05e2\u05d4" };
 
     if (s.orphan) {
       issues.push({
@@ -150,10 +206,10 @@ export function analyzePto(rawSessions: PtoSession[], notes: DeliveryNote[]): Pt
         id: `orphan-${s.id}`,
         type: "pto_missing",
         severity: "warning",
-        title: s.orphan === "missing_close" ? "PTO נפתח ולא נסגר" : "PTO נסגר ללא פתיחה",
-        description: `אירוע PTO ב-${s.date} ${israelTime(s.openIso)} חסר ${
-          s.orphan === "missing_close" ? "סגירה" : "פתיחה"
-        } במיילי איתוראן.`,
+        title: s.orphan === "missing_close" ? "PTO \u05e0\u05e4\u05ea\u05d7 \u05d5\u05dc\u05d0 \u05e0\u05e1\u05d2\u05e8" : "PTO \u05e0\u05e1\u05d2\u05e8 \u05dc\u05dc\u05d0 \u05e4\u05ea\u05d9\u05d7\u05d4",
+        description: `\u05d0\u05d9\u05e8\u05d5\u05e2 PTO \u05d1-${s.date} ${israelTime(s.openIso)} \u05d7\u05e1\u05e8 ${
+          s.orphan === "missing_close" ? "\u05e1\u05d2\u05d9\u05e8\u05d4" : "\u05e4\u05ea\u05d9\u05d7\u05d4"
+        } \u05d1\u05de\u05d9\u05d9\u05dc\u05d9 \u05d0\u05d9\u05ea\u05d5\u05e8\u05d0\u05df.`,
       });
       continue;
     }
@@ -164,74 +220,107 @@ export function analyzePto(rawSessions: PtoSession[], notes: DeliveryNote[]): Pt
         id: `outlier-${s.id}`,
         type: "outlier_crane",
         severity: "warning",
-        title: "משך PTO חריג",
-        description: `PTO פתוח ${s.durationMin} דק׳ (מעל ${OUTLIER_MIN}) ב-${s.date}.`,
+        title: "\u05de\u05e9\u05da PTO \u05d7\u05e8\u05d9\u05d2",
+        description: `PTO \u05e4\u05ea\u05d5\u05d7 ${s.durationMin} \u05d3\u05e7\u05f3 (\u05de\u05e2\u05dc ${OUTLIER_MIN}) \u05d1-${s.date}.`,
       });
     }
 
-    const candidates = notes.filter(
-      (n) => normNoteDate(n.date) === s.date && truckCompatible(n, s.truck),
-    );
-    let best: DeliveryNote | undefined;
-    let bestScore = 0;
     const ptoAddr = String(s.address || "").trim();
+    const sameDay = notes.filter(
+      (n) => datesNear(normNoteDate(n.date), s.date) && truckCompatible(n, s.truck),
+    );
 
-    for (const n of candidates) {
-      if (ptoAddr) {
-        const m = scoreAddressMatch(n.siteAddress, ptoAddr);
-        if (m.isMatch && m.score > bestScore) {
-          best = n;
-          bestScore = m.score;
-        }
+    for (const n of sameDay) {
+      let score = 0;
+      let tier = 0;
+      if (ptoAddr && n.siteAddress) {
+        score = softAddressScore(n.siteAddress, ptoAddr);
+        if (score >= 5) tier = 3;
+        else if (score >= 3) tier = 2;
+        else if (score >= 1) tier = 1;
+      }
+      const cust = String(n.customer || "").trim();
+      if (cust.length >= 3 && ptoAddr.includes(cust.slice(0, Math.min(cust.length, 12)))) {
+        score += 3;
+        tier = Math.max(tier, 2);
+      }
+      if (tier > 0 || (sameDay.length === 1 && !ptoAddr)) {
+        candidates.push({ sessionIdx: i, note: n, score: score + (tier === 0 ? 0.5 : 0), tier: tier || 1 });
       }
     }
 
-    // אם אין כתובת ב-PTO או לא נמצאה התאמה — נסה לפי תאריך+משאית בלבד
-    if (!best && candidates.length === 1) {
-      best = candidates[0];
-    } else if (!best && candidates.length > 1 && !ptoAddr) {
-      best = candidates[0];
-    }
-
-    if (best) {
-      s.matchedNoteId = best.id;
-      if (!ptoAddr && best.siteAddress) {
-        s.address = String(best.siteAddress);
+    if (sameDay.length === 1) {
+      const n = sameDay[0]!;
+      if (!candidates.some((c) => c.sessionIdx === i && c.note.id === n.id)) {
+        candidates.push({ sessionIdx: i, note: n, score: 1, tier: 1 });
       }
     }
+  }
 
-    if (!best) {
-      issues.push({
-        ...base,
-        id: `nomatch-${s.id}`,
-        type: "pto_missing",
-        severity: "warning",
-        title: "PTO ללא תעודה תואמת",
-        description: `PTO ${israelTime(s.openIso)}–${s.closeIso ? israelTime(s.closeIso) : "?"} (${s.durationMin} דק׳) ב-${s.date}, לא נמצאה תעודה באותה כתובת ותאריך.`,
-      });
-      continue;
+  candidates.sort((a, b) => b.score - a.score || b.tier - a.tier);
+  let byAddress = 0;
+  let byDateTruckOnly = 0;
+
+  for (const c of candidates) {
+    const s = sessions[c.sessionIdx]!;
+    if (s.matchedNoteId) continue;
+    if (usedNoteIds.has(String(c.note.id))) continue;
+    s.matchedNoteId = String(c.note.id);
+    usedNoteIds.add(String(c.note.id));
+    if (!String(s.address || "").trim() && c.note.siteAddress) {
+      s.address = String(c.note.siteAddress);
     }
+    if (c.tier >= 2) byAddress += 1;
+    else byDateTruckOnly += 1;
 
-    const hw = summarizeVisitHandwrittenTimes([best.craneTime]).unloadingMin;
+    const hw = summarizeVisitHandwrittenTimes([c.note.craneTime]).unloadingMin;
     if (hw > 0 && s.durationMin !== null && Math.abs(hw - s.durationMin) > GAP_MIN) {
       issues.push({
-        ...base,
+        truck: s.truck,
+        driver: s.driver,
+        address: s.address || "\u05db\u05ea\u05d5\u05d1\u05ea \u05dc\u05d0 \u05d9\u05d3\u05d5\u05e2\u05d4",
         id: `gap-${s.id}`,
         type: "time_gap",
         severity: "warning",
-        title: `פער ${Math.abs(hw - s.durationMin)} דק׳ בין PTO לכתב יד`,
-        description: `ת.מ. ${best.id}: PTO ${s.durationMin} דק׳ מול ${hw} דק׳ בכתב יד.`,
+        title: `\u05e4\u05e2\u05e8 ${Math.abs(hw - s.durationMin)} \u05d3\u05e7\u05f3 \u05d1\u05d9\u05df PTO \u05dc\u05db\u05ea\u05d1 \u05d9\u05d3`,
+        description: `\u05ea.\u05de. ${c.note.id}: PTO ${s.durationMin} \u05d3\u05e7\u05f3 \u05de\u05d5\u05dc ${hw} \u05d3\u05e7\u05f3 \u05d1\u05db\u05ea\u05d1 \u05d9\u05d3.`,
       });
     }
   }
 
-  return { sessions, issues };
+  let unmatched = 0;
+  for (const s of sessions) {
+    if (s.orphan || s.matchedNoteId) continue;
+    unmatched += 1;
+    issues.push({
+      truck: s.truck,
+      driver: s.driver,
+      address: s.address || "\u05db\u05ea\u05d5\u05d1\u05ea \u05dc\u05d0 \u05d9\u05d3\u05d5\u05e2\u05d4",
+      id: `nomatch-${s.id}`,
+      type: "pto_missing",
+      severity: "warning",
+      title: "PTO \u05dc\u05dc\u05d0 \u05ea\u05e2\u05d5\u05d3\u05d4 \u05ea\u05d5\u05d0\u05de\u05ea",
+      description: `PTO ${israelTime(s.openIso)}\u2013${s.closeIso ? israelTime(s.closeIso) : "?"} (${s.durationMin} \u05d3\u05e7\u05f3) \u05d1-${s.date}, \u05dc\u05d0 \u05e0\u05de\u05e6\u05d0\u05d4 \u05ea\u05e2\u05d5\u05d3\u05d4 \u05d1\u05d0\u05d5\u05ea\u05d4 \u05db\u05ea\u05d5\u05d1\u05ea \u05d5\u05ea\u05d0\u05e8\u05d9\u05da.`,
+    });
+  }
+
+  const matched = sessions.filter((s) => s.matchedNoteId).length;
+  return {
+    sessions,
+    issues,
+    matchStats: {
+      total: sessions.length,
+      matched,
+      byAddress,
+      byDateTruckOnly,
+      unmatched,
+    },
+  };
 }
 
 const hhmm = (min: number) =>
   `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 
-/** סיכום לכל משאית לפי התאריך האחרון שיש בו אירועי PTO */
 export function buildTruckSummaries(sessions: PtoSession[]): DriverTruckSummary[] {
   const byTruck = new Map<string, PtoSession[]>();
   for (const s of sessions) {
@@ -242,26 +331,35 @@ export function buildTruckSummaries(sessions: PtoSession[]): DriverTruckSummary[
 
   const out: DriverTruckSummary[] = [];
   for (const [truck, list] of byTruck) {
-    const sorted = [...list].sort((a, b) => ts(b.openIso) - ts(a.openIso));
-    const latestDate = sorted[0]?.date ?? "";
-    const day = sorted.filter((s) => s.date === latestDate);
-    const totalMin = day.reduce((acc, s) => acc + (s.durationMin ?? 0), 0);
-    const driver = day.find((s) => s.driver)?.driver || sorted.find((s) => s.driver)?.driver || "";
+    const latest = list[0]!;
+    const day = list
+      .filter((s) => s.date === latest.date)
+      .sort((a, b) => ts(a.openIso) - ts(b.openIso));
+    const totalPto = day.reduce((sum, s) => sum + (s.durationMin ?? 0), 0);
+    const paired = day.filter((s) => !s.orphan).length;
+
     out.push({
+      driver: day.find((s) => s.driver)?.driver || "\u05dc\u05d0 \u05d9\u05d3\u05d5\u05e2",
       truck,
-      driver,
-      date: latestDate,
-      sessions: day.length,
-      totalUnloadMin: totalMin,
-      totalUnloadLabel: hhmm(totalMin),
-      sample: day.slice(0, 3).map((s) => ({
-        open: israelTime(s.openIso),
-        close: s.closeIso ? israelTime(s.closeIso) : "—",
-        min: s.durationMin,
-        address: s.address,
-        label: s.matchedNoteId ? `ת.מ. ${s.matchedNoteId}` : "ללא תעודה תואמת",
+      truckType: truck.startsWith("615") ? "\u05de\u05e9\u05d0\u05d9\u05ea \u05de\u05e0\u05d5\u05e3" : "\u05de\u05e9\u05d0\u05d9\u05ea",
+      date: latest.date,
+      kmTotal: "\u2014",
+      driveTime: "\u2014",
+      workTime: "\u2014",
+      ptoTime: hhmm(totalPto),
+      idleTime: "\u2014",
+      verifiedStatus: `${paired}/${day.length} \u05d0\u05d9\u05e8\u05d5\u05e2\u05d9 PTO \u05de\u05d6\u05d5\u05d5\u05d2\u05d9\u05dd`,
+      stops: day.map((s) => ({
+        id: s.id,
+        label: s.matchedNoteId ? `\u05ea.\u05de. ${s.matchedNoteId}` : "\u05dc\u05dc\u05d0 \u05ea\u05e2\u05d5\u05d3\u05d4 \u05ea\u05d5\u05d0\u05de\u05ea",
+        address: s.address || "\u05db\u05ea\u05d5\u05d1\u05ea \u05dc\u05d0 \u05d9\u05d3\u05d5\u05e2\u05d4",
+        arriveTime: israelTime(s.openIso),
+        departTime: s.closeIso ? israelTime(s.closeIso) : undefined,
+        ptoOpen: israelTime(s.openIso),
+        ptoClose: s.closeIso ? israelTime(s.closeIso) : undefined,
+        ptoMin: s.durationMin ?? undefined,
       })),
     });
   }
-  return out.sort((a, b) => a.truck.localeCompare(b.truck, "he"));
+  return out;
 }
