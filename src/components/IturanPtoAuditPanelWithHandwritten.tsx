@@ -1,9 +1,9 @@
 /**
  * מעטפת IturanPtoAuditPanel — כתב יד + גשר PTO↔תעודה + הזרקת craneTime בפורמט שה-BasePanel מפענח.
  *
- * הפארסר ב-BasePanel (סיכום summarizeVisitHandwrittenTimes) מכיר רק:
+ * הפרסר ב-BasePanel (סיכום summarizeVisitHandwrittenTimes) מכיר רק:
  *   "HH:mm עד HH:mm"  → unloadingMin
- * לכן חובה להזריק בדיוק פורמט זה (לא קו מקף או en-dash).
+ * לכן חובה להזריק בדיוק פורמט זה (לא קו מפריד או en-dash).
  */
 import { useMemo } from "react";
 import { PenLine, AlertTriangle, Link2, CheckCircle2, XCircle } from "lucide-react";
@@ -45,7 +45,7 @@ function normalizeTimeHe(raw: unknown): string {
     return "";
   }
   const s = String(raw).trim();
-  if (!s || s === "\u2014" || s === "-") return "";
+  if (!s || s === "—" || s === "-") return "";
   const hm = s.match(/^(\d{1,2}):(\d{2})/);
   if (hm) return `${hm[1]!.padStart(2, "0")}:${hm[2]}`;
   if (/^0?\.\d+$/.test(s)) return normalizeTimeHe(Number(s));
@@ -69,7 +69,7 @@ function hwDurationMin(row: HandwrittenSheetRow): number | null {
   return null;
 }
 
-const RETURNS_OK = /^(\u05dc\u05dc\u05d0\s*\u05d4\u05d7\u05d6\u05e8\u05d4|\u05d0\u05d9\u05df\s*\u05d4\u05d7\u05d6\u05e8\u05d4|\u2014|-|)$/i;
+const RETURNS_OK = /^(ללא\s*החזרה|אין\s*החזרה|—|-|)$/i;
 
 function hasReturnsIssue(row: HandwrittenSheetRow): boolean {
   const t = String(row.returnsText || "").trim();
@@ -80,12 +80,11 @@ function hasReturnsIssue(row: HandwrittenSheetRow): boolean {
  * פורמט ש-BasePanel.parseHandwrittenCraneWindows מפענח:
  * "07:45 עד 08:15" → unloadingMin=30
  */
-function formatCraneTimeForBasePanel(row: HandwrittenSheetRow, ptoMin?: number | null): string {
+function formatCraneTimeForBasePanel(row: HandwrittenSheetRow, _ptoMin?: number | null): string {
   let open = normalizeTimeHe(row.craneOpenHe);
   let close = normalizeTimeHe(row.craneCloseHe);
   const dur = hwDurationMin(row);
 
-  // אם חסרות שעות אבל יש משך — סנתי חלון 00:00→דקות כדי שהפארסר יחשב unloadingMin
   if ((!open || !close) && dur != null && dur > 0) {
     open = "00:00";
     const hh = Math.floor(dur / 60);
@@ -94,11 +93,9 @@ function formatCraneTimeForBasePanel(row: HandwrittenSheetRow, ptoMin?: number |
   }
   if (!open || !close) return "";
 
-  // חובה: מילת "עד" (לא en-dash) — אחרת כך הפארסר ב-BasePanel
   let line = `${open} עד ${close}`;
   if (dur != null) line += ` (${dur} דק׳)`;
   if (hasReturnsIssue(row)) {
-    // נשמר בטקסט; האזהרת KPI מחושבת למטה ב-bridge
     line += ` · ${row.returnsText.slice(0, 60)}`;
   }
   return line;
@@ -107,9 +104,9 @@ function formatCraneTimeForBasePanel(row: HandwrittenSheetRow, ptoMin?: number |
 function tokens(raw?: string): string[] {
   return String(raw || "")
     .toLowerCase()
-    .replace(/["'\u05f4\u05f3`.,;()]/g, " ")
+    .replace(/["'״׳`.,;()]/g, " ")
     .split(/\s+/)
-    .map((t) => t.replace(/^\u05d4/, ""))
+    .map((t) => t.replace(/^ה/, ""))
     .filter((t) => t.length >= 2);
 }
 
@@ -238,10 +235,8 @@ export function IturanPtoAuditPanelWithHandwritten({
       }
     }
 
-    // הזרקת craneTime לתעודות + סטטיסטיקת תואם/הזרה
     let aligned = 0;
     let mismatch = 0;
-    let withHw = 0;
     let linkedSessions = 0;
 
     const notesEnriched = enrichedBase.map((n) => {
@@ -251,7 +246,6 @@ export function IturanPtoAuditPanelWithHandwritten({
       const primary =
         rows.find((r) => r.craneOpenHe || r.craneCloseHe || r.durationMin != null) || rows[0]!;
 
-      // מצא duration מסשן PTO שמקושר לתעודה זו
       const linkedSess = outSessions.find((s) => normalizeDocId(s.matchedNoteId) === id);
       const ptoMin = linkedSess?.durationMin ?? null;
       const line = formatCraneTimeForBasePanel(primary, ptoMin);
@@ -266,7 +260,6 @@ export function IturanPtoAuditPanelWithHandwritten({
       } else if (returnsBad) {
         mismatch += 1;
       }
-      withHw += 1;
 
       return { ...n, craneTime: line };
     });
@@ -284,7 +277,6 @@ export function IturanPtoAuditPanelWithHandwritten({
       hwBridge: bridgeCount,
       aligned,
       mismatch,
-      withHw,
       matchedPto: outSessions.filter((s) => s.matchedNoteId).length,
     };
   }, [notes, sessions, handwrittenIndex]);
@@ -302,20 +294,20 @@ export function IturanPtoAuditPanelWithHandwritten({
         )}
       >
         <PenLine className="h-4 w-4 shrink-0" />
-        <span className="font-bold">\u05db\u05ea\u05d1 \u05d9\u05d3 (\u05d8\u05d0\u05d1 \u05d7\u05d9)</span>
+        <span className="font-bold">כתב יד (טאב חי)</span>
         <span className="tabular-nums text-lg font-extrabold">{handwrittenCount}</span>
-        <span className="text-xs opacity-80">\u05e9\u05d5\u05e8\u05d5\u05ea</span>
+        <span className="text-xs opacity-80">שורות</span>
         {matchedDocs > 0 && (
-          <span className="text-xs opacity-80">\u00b7 {matchedDocs} \u05de\u05e1\u05f3 \u05ea\u05e2\u05d5\u05d3\u05d4</span>
+          <span className="text-xs opacity-80">· {matchedDocs} מס׳ תעודה</span>
         )}
         <span className="inline-flex items-center gap-1 text-xs font-semibold opacity-90">
           <Link2 className="h-3.5 w-3.5" />
-          PTO\u2194\u05ea\u05e2\u05d5\u05d3\u05d4: {computed.matchedPto}
-          {computed.hwBridge > 0 ? ` (+${computed.hwBridge} \u05d2\u05e9\u05e8)` : ""}
+          PTO↔תעודה: {computed.matchedPto}
+          {computed.hwBridge > 0 ? ` (+${computed.hwBridge} גשר)` : ""}
         </span>
         <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-800 dark:text-emerald-200">
           <CheckCircle2 className="h-3.5 w-3.5" />
-          \u05ea\u05d5\u05d0\u05dd \u05db\u05f4\u05d9: {computed.aligned}
+          תואם כ״י: {computed.aligned}
         </span>
         <span
           className={cn(
@@ -324,7 +316,7 @@ export function IturanPtoAuditPanelWithHandwritten({
           )}
         >
           <XCircle className="h-3.5 w-3.5" />
-          \u05d0\u05d6\u05d4\u05e8\u05d5\u05ea \u05db\u05f4\u05d9: {computed.mismatch}
+          אזהרות כ״י: {computed.mismatch}
         </span>
         {handwrittenError && (
           <span className="inline-flex items-center gap-1 text-xs font-semibold">
