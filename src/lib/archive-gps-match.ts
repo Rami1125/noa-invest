@@ -31,7 +31,7 @@ export function isJunkTime(raw?: unknown): boolean {
   return false;
 }
 
-/** נרמול ל-HH:mm מתוך מחרוזת / שבר יום */
+/** נרמול ל-HH:mm מתוך מחרוזת / שבר יום / ISO */
 export function normalizeTimeHe(raw?: unknown): string {
   if (isJunkTime(raw)) return "";
   if (typeof raw === "number" && Number.isFinite(raw)) {
@@ -46,6 +46,8 @@ export function normalizeTimeHe(raw?: unknown): string {
     return "";
   }
   const s = String(raw).trim();
+  const iso = s.match(/T(\d{1,2}):(\d{2})/);
+  if (iso) return `${iso[1]!.padStart(2, "0")}:${iso[2]}`;
   const hm = s.match(/(\d{1,2}):(\d{2})/);
   if (hm) return `${hm[1]!.padStart(2, "0")}:${hm[2]}`;
   if (/^0?\.\d+$/.test(s)) return normalizeTimeHe(Number(s));
@@ -54,28 +56,37 @@ export function normalizeTimeHe(raw?: unknown): string {
 }
 
 /**
- * אם לתעודה יש הגעה+יציאה תקינות (מ-API getNotes עם AA:AB או AH:AJ) —
+ * אם לתעודה יש hasGpsMatch / gpsSource מארכיון, או הגעה+יציאה תקינות —
  * מחזיר רשומת match verified; אחרת null.
  */
 export function matchFromArchiveGps(note: DeliveryNote): ArchiveGpsMatch | null {
   const arrive = normalizeTimeHe(note.itArrive);
   const depart = normalizeTimeHe(note.itDepart);
-  if (!arrive || !depart) return null;
+  const flagged =
+    note.hasGpsMatch === true ||
+    note.gpsSource === "sheet_AA_AB" ||
+    note.gpsSource === "sheet_AH_AJ" ||
+    note.gpsSource === "sheet_partial";
+
+  // בלי flag ובלי שתי שעות תקינות — אין התאמת ארכיון
+  if (!flagged && (!arrive || !depart)) return null;
 
   const src =
-    note.gpsSource ||
-    (note.hasGpsMatch ? "sheet_AH_AJ" : "sheet_AA_AB") ||
-    "sheet_AH_AJ";
+    (note.gpsSource && String(note.gpsSource)) ||
+    (note.hasGpsMatch ? "sheet_AH_AJ" : arrive && depart ? "sheet_AA_AB" : "sheet_AH_AJ");
+
   const dwell =
     note.itStop != null && Number.isFinite(Number(note.itStop))
       ? Number(note.itStop)
-      : (() => {
-          const [ah, am] = arrive.split(":").map(Number);
-          const [dh, dm] = depart.split(":").map(Number);
-          const a = (ah || 0) * 60 + (am || 0);
-          const d = (dh || 0) * 60 + (dm || 0);
-          return d >= a ? d - a : null;
-        })();
+      : arrive && depart
+        ? (() => {
+            const [ah, am] = arrive.split(":").map(Number);
+            const [dh, dm] = depart.split(":").map(Number);
+            const a = (ah || 0) * 60 + (am || 0);
+            const d = (dh || 0) * 60 + (dm || 0);
+            return d >= a ? d - a : null;
+          })()
+        : null;
 
   const plate =
     normalizePlate(String((note as { truck?: string }).truck || "")) ||
@@ -95,14 +106,17 @@ export function matchFromArchiveGps(note: DeliveryNote): ArchiveGpsMatch | null 
         : src === "sheet_AA_AB"
           ? "GPS מארכיון (AA:AB)"
           : `GPS מארכיון (${src})`,
-    stop: {
-      plate,
-      address: note.siteAddress || "",
-      arrive,
-      depart,
-      driver: note.driver,
-      durationMin: dwell ?? undefined,
-    },
+    stop:
+      arrive || depart
+        ? {
+            plate,
+            address: note.siteAddress || "",
+            arrive: arrive || "",
+            depart: depart || "",
+            driver: note.driver,
+            durationMin: dwell ?? undefined,
+          }
+        : undefined,
     fromSheet: true,
     tier: "verified",
     ptoMin: null,
