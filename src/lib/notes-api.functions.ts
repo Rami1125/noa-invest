@@ -183,7 +183,7 @@ export const listPtoFn = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const params: Record<string, string> = { action: "getIturanPto", _t: String(Date.now()), nocache: "1" };
-    if (data.since) params.since = data.truck;
+    if (data.since) params.since = data.since;
     if (data.truck) params.truck = data.truck;
     const r = await gasGet(params);
     return {
