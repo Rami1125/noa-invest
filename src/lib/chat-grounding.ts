@@ -17,6 +17,8 @@ export type BackendMeta = {
   ituranSource?: "sample" | "none" | string;
   matchedStops?: number;
   unmatchedStops?: number;
+  /** תעודות עם hasGpsMatch / gpsSource מארכיון (AA_AB / AH_AJ) */
+  archiveGpsMatchedCount?: number;
   date?: string | null;
   warning?: string;
   ituranError?: string;
@@ -24,7 +26,7 @@ export type BackendMeta = {
 };
 
 export const EVIDENCE_LABEL_HE: Record<EvidenceLevel, string> = {
-  live_verified: "מאומת מהשרת",
+  live_verified: "מאומת · גיליון חי",
   from_store: "נמצא במאגר",
   historical: "מידע היסטורי",
   partial: "מידע חלקי",
@@ -73,6 +75,9 @@ export function describeSources(meta: BackendMeta | null, fetchedAt: string | nu
     `• איתוראן / עצירות GPS בצינור הצ׳אט: ${meta.ituranSource ?? "לא ידוע"}${typeof meta.matchedStops === "number" ? ` · הצלבות: ${meta.matchedStops}` : ""}`,
     `• ביקורים מחושבים: ${meta.visitsCount ?? "\u2014"}`,
   ];
+  if (typeof meta.archiveGpsMatchedCount === "number") {
+    lines.push(`• GPS מארכיון תעודות: ${meta.archiveGpsMatchedCount}`);
+  }
   if (meta.warning) lines.push(`• אזהרה: ${meta.warning}`);
   if (meta.ituranError) lines.push(`• איתוראן: ${meta.ituranError}`);
   if (fetchedAt) lines.push(`• נמשך מהשרת ב: ${fetchedAt}`);
@@ -82,12 +87,31 @@ export function describeSources(meta: BackendMeta | null, fetchedAt: string | nu
 
 export function evidenceFromMeta(meta: BackendMeta | null): EvidenceLevel {
   if (!meta) return "unavailable";
-  if (meta.notesSource === "live" && (meta.notesCount ?? 0) > 0) {
-    if (meta.ituranSource && meta.ituranSource !== "none") return "partial";
+  if (meta.notesSource === "sample") return "unavailable";
+  if (meta.notesSource !== "live" || !(meta.notesCount && meta.notesCount > 0)) {
+    return "unavailable";
+  }
+
+  const visits = meta.visitsCount ?? 0;
+  const archiveGps = meta.archiveGpsMatchedCount ?? 0;
+  const matched = meta.matchedStops ?? 0;
+  const unmatched = meta.unmatchedStops ?? 0;
+  const hasPtoOrArchive =
+    visits > 0 || archiveGps > 0 || Boolean(meta.ituranSource && meta.ituranSource !== "none");
+
+  // תעודות חיות + PTO/ארכיון GPS — לא "חלקי" רק בגלל יתומים בודדים
+  if (hasPtoOrArchive) {
+    if (visits > 0) {
+      const total = matched + unmatched;
+      const matchRatio = total > 0 ? matched / total : 1;
+      if (matchRatio >= 0.5 || archiveGps > 0 || matched > 0) return "live_verified";
+      return "partial";
+    }
+    if (archiveGps > 0) return "live_verified";
     return "from_store";
   }
-  if (meta.notesSource === "sample") return "unavailable";
-  return "unavailable";
+
+  return "from_store";
 }
 
 /** פורמט זמן ישראל מ-ISO */
