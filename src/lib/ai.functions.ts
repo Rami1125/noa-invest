@@ -3,6 +3,8 @@
  */
 import { createServerFn } from "@tanstack/react-start";
 import { loadCustomerHistory } from "./customer-history.server";
+import type { DeliveryNote } from "./data";
+import { pairPtoEvents, analyzePto, type PtoRow } from "./smart-dispatch/pto-pairing";
 
 type Msg = { role: "user" | "assistant"; content: string };
 type AskInput = { messages: Msg[]; customerNo?: string };
@@ -115,14 +117,49 @@ function noteHasArchiveGps(n: Record<string, unknown>): boolean {
   return (
     n.hasGpsMatch === true ||
     n.hasGpsMatch === "true" ||
+    Boolean(n.itArrive && n.itDepart) ||
     src === "sheet_AA_AB" ||
-    src === "sheet_AH_AJ" ||
-    Boolean(n.itArrive && n.itDepart)
+    src === "sheet_AH_AJ"
   );
 }
 
 function noteIdOf(n: Record<string, unknown>): string {
   return String(n.id ?? n.docNumber ?? n["מספר תעודה"] ?? n.noteId ?? "").trim();
+}
+
+function toPtoRows(raw: unknown[]): PtoRow[] {
+  return raw
+    .map((item) => {
+      const e = (item || {}) as Record<string, unknown>;
+      return {
+        truck: String(e.truck || e.plate || "").trim(),
+        driver: String(e.driver || "").trim(),
+        eventType: String(e.eventType || e.type || "").trim(),
+        eventTimeIso: String(e.eventTimeIso || e.timeIso || e.openIso || e.eventTime || "").trim(),
+        address: String(e.address || e.siteAddress || "").trim(),
+      } satisfies PtoRow;
+    })
+    .filter((r) => r.truck && r.eventTimeIso && r.eventType);
+}
+
+function toDeliveryNotes(raw: unknown[]): DeliveryNote[] {
+  return raw.map((item) => {
+    const n = (item || {}) as Record<string, unknown>;
+    return {
+      id: noteIdOf(n) || "unknown",
+      customer: String(n.customer || n.customerName || ""),
+      date: String(n.date || n.docDate || n.deliveryDate || ""),
+      items: Array.isArray(n.items) ? (n.items as DeliveryNote["items"]) : [],
+      driver: String(n.driver || ""),
+      siteAddress: String(n.siteAddress || n.address || n.fullAddress || ""),
+      customerNo: n.customerNo != null ? String(n.customerNo) : undefined,
+      hasGpsMatch: n.hasGpsMatch === true || n.hasGpsMatch === "true",
+      gpsSource: (String(n.gpsSource || "") as DeliveryNote["gpsSource"]) || "",
+      itArrive: n.itArrive != null ? String(n.itArrive) : undefined,
+      itDepart: n.itDepart != null ? String(n.itDepart) : undefined,
+      live: true,
+    };
+  });
 }
 
 /** liveSummary על המערך המלא (לפני compactSource) — מקור האמת לסיכומים */
@@ -132,7 +169,6 @@ function buildLiveSummary(
   _allHandwritten: unknown[] = [],
 ): Record<string, unknown> {
   const notes = allNotes as Record<string, unknown>[];
-  const events = allPto as Record<string, unknown>[];
 
   let notesWithArchiveGps = 0;
   let aaAb = 0;
@@ -145,20 +181,34 @@ function buildLiveSummary(
       if (src === "sheet_AA_AB") aaAb++;
       if (src === "sheet_AH_AJ") ahAj++;
     } else {
+      // hasGpsMatch === false / חסר — רק תעודות שבאמת ללא GPS
+      if (n.hasGpsMatch === true || n.hasGpsMatch === "true") continue;
       const id = noteIdOf(n);
       if (id && withoutGpsIds.length < 15) withoutGpsIds.push(id);
     }
   }
 
-  let over20MinCount = 0;
+  // סשני PTO אמיתיים דרך pairPtoEvents + analyzePto (כמו ב-/chat)
+  const ptoRows = toPtoRows(allPto);
+  const deliveryNotes = toDeliveryNotes(allNotes);
+  const paired = pairPtoEvents(ptoRows);
+  const analysis = analyzePto(paired, deliveryNotes);
+  const sessions = analysis.sessions;
+
   let openPtoCount = 0;
-  let orphanSessions = 0;
-  for (const e of events) {
-    const dur = Number(e.durationMin ?? e.itStop ?? e.dwell ?? e.ptoDurationMin ?? 0);
-    if (Number.isFinite(dur) && dur > 20) over20MinCount++;
-    const orphan = String(e.orphan || e.status || "");
-    if (orphan === "missing_close" || /open|פתוח/i.test(orphan)) openPtoCount++;
-    if (!e.matchedNoteId && !e.noteId && !e.docNumber) orphanSessions++;
+  let over20MinCount = 0;
+  let maxDurationMin = 0;
+  let matchedToNoteCount = 0;
+  let unmatchedSessionsCount = 0;
+  for (const s of sessions) {
+    if (s.orphan === "missing_close" || s.orphan === "missing_open") openPtoCount++;
+    const dur = s.durationMin;
+    if (dur != null && Number.isFinite(dur)) {
+      if (dur > 20) over20MinCount++;
+      if (dur > maxDurationMin) maxDurationMin = dur;
+    }
+    if (s.matchedNoteId) matchedToNoteCount++;
+    else unmatchedSessionsCount++;
   }
 
   return {
@@ -168,10 +218,14 @@ function buildLiveSummary(
     notesWithoutGpsIds: withoutGpsIds,
     gpsSourceAA_AB: aaAb,
     gpsSourceAH_AJ: ahAj,
-    totalPtoEvents: events.length,
+    totalPtoEvents: ptoRows.length,
+    totalPtoSessions: sessions.length,
     openPtoCount,
     over20MinCount,
-    ptoSessionsWithoutNote: orphanSessions,
+    maxDurationMin,
+    matchedToNoteCount,
+    unmatchedSessionsCount,
+    matchStats: analysis.matchStats,
   };
 }
 
@@ -393,12 +447,20 @@ export const askNoa = createServerFn({ method: "POST" })
     }
 
     const instructions = `את נועה — עוזרת חמ״ל לוגיסטי של ח. סבן. עברית רגילה, חדה ותמציתית.
-אורך: עד 150 מילים לשאלה רגילה; עד 250 לסיכום יומי או סקירת לקוח.
-מבנה: מסקנה קצרה -> בולטים או טבלת | -> שורת פעולה אחת. בלי markdown, בלי לנחש.
+אורך: עד 150 מילים לשאלה רגילה; עד 250 לסיכום יומי או סקירת לקוח; עד 400 לפקודת NotebookLM.
+מבנה רגיל: מסקנה קצרה -> בולטים או טבלת | -> שורת פעולה אחת. בלי markdown מיותר, בלי לנחש.
+
 liveSummary הוא מקור האמת היחיד לסיכומים וספירות:
   totalNotes, notesWithArchiveGps, notesWithoutGps (+ notesWithoutGpsIds),
-  totalPtoEvents, openPtoCount, over20MinCount.
+  totalPtoSessions, openPtoCount, over20MinCount, maxDurationMin,
+  matchedToNoteCount, unmatchedSessionsCount.
 השתמשי רק ב-liveSummary לספירות — אל תספרי מתוך sources.*.records (זו דגימה חלקית).
+
+פקודת מצגת / דוח הנהלה / NotebookLM Studio:
+  אסור להחזיר JSON גולמי, אסור שדות כמו "query" או "notebookinstructions".
+  החזירי טקסט עברי נקי ומוכן להעתקה ל-NotebookLM Studio, שמשלב את המספרים האמיתיים מ-liveSummary
+  (תעודות, התאמות GPS מארכיון, חריגות מעל 20 דק׳, PTO פתוח / לא משויך).
+
 אל תציגי טלפונים, ח.פ או קישורי Drive.`;
 
     const withContext: Msg[] = [
