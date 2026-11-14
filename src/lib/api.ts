@@ -16,9 +16,6 @@ export const API_BASE =
 export const MASTER_SHEET_ID = "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw";
 
 const CACHE_KEY_NOTES = "saban-live-notes-v4";
-const CACHE_KEY_GPS = "saban-live-gps-v4";
-const CACHE_KEY_CUSTOMERS = "saban-live-customers-v4";
-const CACHE_KEY_DASHBOARD = "saban-live-dashboard-v4";
 const PENDING_APPROVALS_KEY = "saban-pending-approvals-v1";
 
 export type ApprovalPayload = {
@@ -29,22 +26,77 @@ export type ApprovalPayload = {
   timestamp: string;
 };
 
-/** Client-side notes fetch via server fn */
-export async function fetchLiveNotes(): Promise<DeliveryNote[]> {
+function readPending(): ApprovalPayload[] {
+  if (typeof window === "undefined") return [];
   try {
-    const res = await listNotesFn();
-    return (res as { notes?: DeliveryNote[] })?.notes || [];
+    const raw = localStorage.getItem(PENDING_APPROVALS_KEY);
+    return raw ? (JSON.parse(raw) as ApprovalPayload[]) : [];
   } catch {
-    return DEFAULT_NOTES as DeliveryNote[];
+    return [];
   }
 }
 
+function writePending(list: ApprovalPayload[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(PENDING_APPROVALS_KEY, JSON.stringify(list));
+}
+
+export async function flushPendingApprovals(): Promise<void> {
+  if (typeof window === "undefined") return;
+  const pending = readPending();
+  if (!pending.length) return;
+  const remaining: ApprovalPayload[] = [];
+  for (const item of pending) {
+    try {
+      await approvalFn({ data: item as never });
+    } catch {
+      remaining.push(item);
+    }
+  }
+  writePending(remaining);
+}
+
+export async function fetchLiveNotes(): Promise<DeliveryNote[]> {
+  try {
+    const res = await listNotesFn();
+    const notes = (res as { notes?: DeliveryNote[] })?.notes;
+    if (Array.isArray(notes) && notes.length) {
+      try {
+        localStorage.setItem(CACHE_KEY_NOTES, JSON.stringify(notes));
+      } catch {
+        /* ignore */
+      }
+      return notes;
+    }
+  } catch {
+    /* fallback */
+  }
+  try {
+    const cached = localStorage.getItem(CACHE_KEY_NOTES);
+    if (cached) return JSON.parse(cached) as DeliveryNote[];
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_NOTES as DeliveryNote[];
+}
+
 export async function approveStrict(payload: ApprovalPayload) {
-  return approvalFn({ data: payload });
+  try {
+    return await approvalFn({ data: payload as never });
+  } catch (err) {
+    const pending = readPending();
+    pending.push(payload);
+    writePending(pending);
+    throw err;
+  }
+}
+
+export async function saveSignedNoteStrict(params: Record<string, unknown>) {
+  return saveSignedNoteFn({ data: params as never });
 }
 
 export async function saveSignedNote(payload: Record<string, unknown>) {
-  return saveSignedNoteFn({ data: payload as never });
+  return saveSignedNoteStrict(payload);
 }
 
 export type { SheetNote, DeliveryNote, DeliveryItem, Order, Yard, CustomerProfile, GpsStop };
