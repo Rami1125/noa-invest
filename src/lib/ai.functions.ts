@@ -313,7 +313,6 @@ async function getServerContext(question: string): Promise<string> {
 
   const liveSummary = buildLiveSummary(fullNotes, fullPto, fullHandwritten);
 
-  // liveSummary = מקור האמת; sources = דגימות קומפקטיות בלבד (לא 163 תעודות מלאות)
   const payload = {
     fetchedAt: new Date().toISOString(),
     liveSummary,
@@ -331,7 +330,6 @@ async function getServerContext(question: string): Promise<string> {
     },
   };
   let json = JSON.stringify(payload);
-  // הגנה מפני payload ענק שגורם ל-HTTP 400
   if (json.length > 100_000) {
     json = JSON.stringify({
       fetchedAt: payload.fetchedAt,
@@ -352,7 +350,6 @@ async function sleepMs(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-/** בניית contents תקינה ל-Gemini REST: role רק user|model, parts לא ריק, מתחיל ב-user */
 function buildGeminiContents(messages: Msg[]): { role: "user" | "model"; parts: { text: string }[] }[] {
   const raw: { role: "user" | "model"; text: string }[] = [];
   for (const m of messages) {
@@ -377,14 +374,38 @@ function buildGeminiContents(messages: Msg[]): { role: "user" | "model"; parts: 
   }));
 }
 
+/** פירוק מפתחות מ-env: תומך במפתח בודד או ברשימה (פסיק / שורה חדשה / ;) */
+function resolveGeminiApiKeys(): string[] {
+  const raw = [
+    process.env["GEMINI_API_KEY"],
+    process.env["GEMINI_API_KEYS"],
+    process.env["GOOGLE_API_KEY"],
+  ]
+    .filter(Boolean)
+    .join("\n");
+  if (!raw.trim()) return [];
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  for (const part of raw.split(/[\n,;|]+/)) {
+    let k = part.trim().replace(/^["']|["']$/g, "").trim();
+    if (k.toLowerCase().startsWith("key=")) k = k.slice(4).trim();
+    if (!k) continue;
+    if (!/^AIza[0-9A-Za-z_-]{10,}$/.test(k)) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    keys.push(k);
+  }
+  return keys;
+}
+
 async function callGemini(instructions: string, messages: Msg[]): Promise<string> {
-  const key =
-    process.env["GEMINI_API_KEY"] ||
-    process.env["GEMINI_API_KEYS"] ||
-    process.env["GOOGLE_API_KEY"];
-  if (!key) throw new Error("GEMINI_API_KEY לא מוגדר");
+  const keys = resolveGeminiApiKeys();
+  if (keys.length === 0) {
+    throw new Error(
+      "GEMINI_API_KEY לא מוגדר או לא תקין (צפוי מפתח שמתחיל ב-AIza…; ברשימה — הפרד בפסיק או שורה)",
+    );
+  }
   const model = (process.env["GEMINI_MODEL"] || "gemini-2.0-flash").trim();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 
   const systemPrompt = String(instructions || "").trim() || "את נועה — עוזרת חמ״ל לוגיסטי.";
   const contents = buildGeminiContents(messages);
@@ -393,7 +414,6 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
     temperature: 0.3,
     maxOutputTokens: 4096,
   };
-  // thinkingConfig רק ל-gemini-2.5-* — ב-2.0-flash מחזיר HTTP 400
   if (/^gemini-2\.5/i.test(model) || model.includes("2.5")) {
     generationConfig.thinkingConfig = { thinkingBudget: 0 };
   }
@@ -405,41 +425,57 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
   };
 
   let lastErr = "";
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(60_000),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        lastErr = `Gemini HTTP ${res.status}: ${errText.slice(0, 400)}`;
-        if (res.status === 429 || res.status >= 500) {
-          await sleepMs(800 * (attempt + 1));
-          continue;
+  for (let ki = 0; ki < keys.length; ki++) {
+    const key = keys[ki]!;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(60_000),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          lastErr = `Gemini HTTP ${res.status}: ${errText.slice(0, 400)}`;
+          const invalidKey =
+            res.status === 400 &&
+            (/API_KEY_INVALID/i.test(errText) || /API key not valid/i.test(errText));
+          if (invalidKey) break;
+          if (res.status === 429 || res.status >= 500) {
+            await sleepMs(800 * (attempt + 1));
+            continue;
+          }
+          throw new Error(lastErr);
         }
-        throw new Error(lastErr);
+        const data = (await res.json()) as {
+          candidates?: { content?: { parts?: { text?: string }[] } }[];
+          error?: { message?: string };
+        };
+        if (data.error?.message) {
+          const msg = data.error.message;
+          if (/API key not valid|API_KEY_INVALID/i.test(msg)) {
+            lastErr = `Gemini API: ${msg.slice(0, 200)}`;
+            break;
+          }
+          throw new Error(`Gemini API: ${msg.slice(0, 400)}`);
+        }
+        const text =
+          data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+        if (!text.trim()) throw new Error("תשובת Gemini ריקה");
+        return text.trim();
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+        if (/API_KEY_INVALID|API key not valid/i.test(lastErr)) break;
+        if (/HTTP 400/.test(lastErr)) throw new Error(lastErr);
+        if (attempt < 1) await sleepMs(600 * (attempt + 1));
       }
-      const data = (await res.json()) as {
-        candidates?: { content?: { parts?: { text?: string }[] } }[];
-        error?: { message?: string };
-      };
-      if (data.error?.message) {
-        throw new Error(`Gemini API: ${data.error.message.slice(0, 400)}`);
-      }
-      const text =
-        data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
-      if (!text.trim()) throw new Error("תשובת Gemini ריקה");
-      return text.trim();
-    } catch (e) {
-      lastErr = e instanceof Error ? e.message : String(e);
-      if (/HTTP 400/.test(lastErr)) break;
-      if (attempt < 2) await sleepMs(600 * (attempt + 1));
     }
   }
-  throw new Error(lastErr || "Gemini נכשל");
+  throw new Error(
+    lastErr || `Gemini נכשל — נוסו ${keys.length} מפתחות (כולם נדחו או נכשלו)`,
+  );
 }
 
 const DEFAULT_SUGGESTIONS = [
