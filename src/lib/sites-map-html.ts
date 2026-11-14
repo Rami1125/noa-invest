@@ -110,15 +110,38 @@ export function generateInteractiveMapHtml(
       const severity = pinSeverityFromSite(s);
       const driveMin = s.driveHarashMin ?? s.driveTalmidMin ?? 15;
       const expectedMin = Math.round(Number(s.avgStopMin || 20));
-      const street = String(s.address || "").trim();
       const city = String(s.city || "").trim();
-      const cust = String(s.customer || "").trim();
       const no = String(s.customerNo || "").trim();
-      const streetLabel = street ? (street.length > 28 ? street.slice(0, 26) + "…" : street) : city || cust || "אתר";
-      const locLine = [street, city].filter(Boolean).join(", ");
+      let cust = String(s.customer || "").trim();
+      let street = String(s.address || "").trim();
+      if (street.includes("|")) {
+        const parts = street
+          .split("|")
+          .map((p) => p.trim())
+          .filter(Boolean);
+        street =
+          parts.find((p) => !/^\d+$/.test(p) && p.length > 2) || parts[parts.length - 1] || street;
+      }
+      if (!cust || cust.includes("|")) {
+        const parts = cust
+          .split("|")
+          .map((p) => p.trim())
+          .filter(Boolean);
+        cust = parts.find((p) => /[\u0590-\u05FF]/.test(p) && !/^\d+$/.test(p)) || "";
+      }
+      if (no && cust.startsWith(no)) {
+        cust = cust.slice(no.length).replace(/^[\s\-–|/]+/, "").trim();
+      }
+      const displayName = cust || (no ? `#${no}` : "") || street || city || "אתר";
+      const streetLabel = street
+        ? street.length > 28
+          ? street.slice(0, 26) + "…"
+          : street
+        : city || "אתר";
+      const locLine = [street, city].filter(Boolean).join(" · ");
       return {
         key: s.siteKey,
-        customerName: cust,
+        customerName: displayName,
         customerNo: no,
         city,
         address: street,
@@ -134,26 +157,30 @@ export function generateInteractiveMapHtml(
         totalMin: Math.round(Number(s.totalMissionHarashMin || driveMin + expectedMin)),
         levelHe: severity === "red" ? "צוואר בקבוק" : severity === "orange" ? "מעכב" : "תקין",
         isSelected: selectedKey === s.siteKey,
-        tip: [cust && (no ? `${cust} #${no}` : cust), locLine].filter(Boolean).join(" · "),
+        tip: [displayName && (no ? `${displayName} #${no}` : displayName), locLine]
+          .filter(Boolean)
+          .join(" · "),
       };
     });
 
-  const whList = (warehouses.length ? warehouses : WAREHOUSES.map((w) => ({ ...w, name: w.label }))).map((w) => {
-    const id = String((w as MapWarehouse).id || (w as MapWarehouse).key || "");
-    const pct =
-      warehouseLoadDelay?.[id] ??
-      warehouseLoadDelay?.[(w as MapWarehouse).key || ""] ??
-      (w as MapWarehouse).loadDelayPct ??
-      0;
-    return {
-      id,
-      lat: w.lat,
-      lng: w.lng,
-      label: (w as MapWarehouse).name || (w as { label?: string }).label || id,
-      short: w.short || "מ",
-      loadPct: Number(pct) || 0,
-    };
-  });
+  const whList = (warehouses.length ? warehouses : WAREHOUSES.map((w) => ({ ...w, name: w.label }))).map(
+    (w) => {
+      const id = String((w as MapWarehouse).id || (w as MapWarehouse).key || "");
+      const pct =
+        warehouseLoadDelay?.[id] ??
+        warehouseLoadDelay?.[(w as MapWarehouse).key || ""] ??
+        (w as MapWarehouse).loadDelayPct ??
+        0;
+      return {
+        id,
+        lat: w.lat,
+        lng: w.lng,
+        label: (w as MapWarehouse).name || (w as { label?: string }).label || id,
+        short: w.short || "מ",
+        loadPct: Number(pct) || 0,
+      };
+    },
+  );
 
   const progress = hikmat || {
     active: false,
@@ -167,9 +194,10 @@ export function generateInteractiveMapHtml(
   const sitesJson = JSON.stringify(pins).replace(/</g, "\\u003c");
   const whJson = JSON.stringify(whList).replace(/</g, "\\u003c");
   const progressJson = JSON.stringify(progress).replace(/</g, "\\u003c");
+  // CARTO דורש מפתח תקף — בלי מפתח: OpenStreetMap (מונע API KEY REQUIRED)
   const tileUrl = cartoKey
-    ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?apikey=${cartoKey}`
-    : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png";
+    ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?api_key=${encodeURIComponent(cartoKey)}`
+    : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
   return `<!DOCTYPE html>
 <html lang="he" dir="rtl"><head>
@@ -257,7 +285,7 @@ const map=L.map('map',{
   zoomSnap:0.25
 }).setView([32.15,34.89],11);
 L.control.zoom({position:'bottomright'}).addTo(map);
-L.tileLayer(TILE,{maxZoom:19,attribution:'© CARTO · OSM',updateWhenIdle:true}).addTo(map);
+L.tileLayer(TILE,{maxZoom:19,attribution: TILE.indexOf('openstreetmap')>=0 ? '© OpenStreetMap' : '© CARTO · OSM',updateWhenIdle:true}).addTo(map);
 map.createPane('pinsPane');
 map.getPane('pinsPane').style.zIndex=650;
 
@@ -265,29 +293,43 @@ const markersLayer=L.layerGroup().addTo(map);
 
 function badgeClass(sev){return sev==='red'?'b-red':sev==='orange'?'b-orange':'b-green'}
 function esc(t){return String(t||'').replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'"')}
+function cleanLabel(t){
+  t=String(t||'').trim();
+  if(!t) return '';
+  if(t.indexOf('|')>=0){
+    var parts=t.split('|').map(function(p){return p.trim()}).filter(Boolean);
+    t=parts.filter(function(p){return !/^\d+$/.test(p)})[0]||parts[parts.length-1]||t;
+  }
+  return t;
+}
 function shortName(s){
-  const n=(s.customerName||'').trim();
-  if(n) return n.length>16?n.slice(0,15)+'…':n;
-  const a=(s.streetLabel||s.address||'').trim();
-  return a? (a.length>16?a.slice(0,15)+'…':a) : 'אתר';
+  var n=cleanLabel(s.customerName||'');
+  if(s.customerNo && n.indexOf(String(s.customerNo))===0){
+    n=n.slice(String(s.customerNo).length).replace(/^[\s\-–|/]+/,'').trim();
+  }
+  if(n) return n.length>18?n.slice(0,17)+'…':n;
+  if(s.customerNo) return '#'+s.customerNo;
+  var a=cleanLabel(s.streetLabel||s.address||'');
+  return a? (a.length>18?a.slice(0,17)+'…':a) : 'אתר';
 }
 function shortStreet(s){
-  const a=(s.streetLabel||s.address||'').trim();
-  if(!a) return (s.city||'');
-  return a.length>18?a.slice(0,17)+'…':a;
+  var a=cleanLabel(s.streetLabel||s.address||'');
+  var city=cleanLabel(s.city||'');
+  if(!a) return city;
+  if(city && a.indexOf(city)<0) a=a+' · '+city;
+  return a.length>22?a.slice(0,21)+'…':a;
 }
 
 function labeledIcon(sev,selected,s){
   const name=esc(shortName(s));
   const street=esc(shortStreet(s));
-  const city=esc((s.city||'').trim());
   const showStreet=street && street!==name;
   const mark=sev==='red'?'!':'';
   const html=
     '<div class="pin-stack">'
     +'<div class="pin '+sev+(selected?' selected':'')+'"><span class="pin-inner">'+mark+'</span></div>'
     +'<div class="pin-name">'+name+'</div>'
-    +(showStreet?'<div class="pin-street">'+street+(city?' · '+city:'')+'</div>':'')
+    +(showStreet?'<div class="pin-street">'+street+'</div>':'')
     +'</div>';
   return L.divIcon({
     className:'pin-wrap',
