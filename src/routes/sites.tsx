@@ -1,26 +1,37 @@
+/**
+ * /sites — מפת אתרים חיה (GAS getSites + Notes + PTO)
+ */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/AppShell";
-import { getSiteAtlasFn } from "@/lib/customer-history.functions";
 import { getMapConfigFn } from "@/lib/map-config.functions";
+import {
+  getSitesLiveFn,
+  type GasSite,
+  type SiteNoteLink,
+  type SitePtoSession,
+} from "@/lib/sites-live.functions";
 import {
   generateInteractiveMapHtml,
   isSiteDelayBottleneck,
-  getExpectedUnloadingMinutes,
-  buildUnloadAdvice,
   isSlowUnload,
   isValidMapCoord,
-  pinSeverity,
-  SLOW_UNLOAD_MIN,
-  WAREHOUSE,
+  buildUnloadAdvice,
+  pinSeverityFromSite,
   type MapPinLayer,
 } from "@/lib/sites-map-html";
-import { fmtShort } from "@/lib/he-date";
 import { cn } from "@/lib/utils";
 import {
-  Building2, ExternalLink, FileText, MapPin, Search, Users, RefreshCw, Filter,
-  AlertTriangle, CheckCircle2, Navigation, MessageCircle, Warehouse,
+  Building2,
+  ExternalLink,
+  MapPin,
+  Search,
+  RefreshCw,
+  AlertTriangle,
+  Navigation,
+  Warehouse,
+  Clock,
 } from "lucide-react";
 
 export const Route = createFileRoute("/sites")({
@@ -42,21 +53,108 @@ function getSiteRegion(city: string): Region {
   return "sharon";
 }
 
+function formatIsraelTime(iso?: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleTimeString("he-IL", {
+      timeZone: "Asia/Jerusalem",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function matchSiteNotes(site: GasSite, notes: SiteNoteLink[]): SiteNoteLink[] {
+  const no = site.customerNo.trim();
+  const addr = site.address.trim().toLowerCase();
+  return notes
+    .filter((n) => {
+      if (no && n.customerNo && n.customerNo === no) return true;
+      if (addr && n.address && n.address.toLowerCase().includes(addr.slice(0, 12))) return true;
+      return false;
+    })
+    .slice(0, 12);
+}
+
+function matchSitePto(site: GasSite, sessions: SitePtoSession[]): SitePtoSession[] {
+  const addr = site.address.trim().toLowerCase();
+  const no = site.customerNo.trim();
+  return sessions
+    .filter((s) => {
+      if (addr && s.address && s.address.toLowerCase().includes(addr.slice(0, 10))) return true;
+      if (no && s.matchedNoteId && s.matchedNoteId.includes(no)) return true;
+      return false;
+    })
+    .slice(0, 12);
+}
+
+function PtoStatusButtons({ session }: { session?: SitePtoSession | null }) {
+  if (!session) {
+    return (
+      <div className="flex gap-1.5">
+        <span className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-bold text-slate-500">פתיחה</span>
+        <span className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-bold text-slate-500">סגירה</span>
+      </div>
+    );
+  }
+  const openActive = session.orphan === "missing_close" || (!session.closeIso && Boolean(session.openIso));
+  const closed = Boolean(session.closeIso) && session.orphan !== "missing_close";
+  const dur = session.durationMin;
+  const closeTone =
+    dur == null
+      ? "bg-emerald-700/80 text-white"
+      : dur > 40
+        ? "bg-red-600 text-white"
+        : dur > 20
+          ? "bg-amber-600 text-white"
+          : "bg-emerald-600 text-white";
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      <span
+        className={cn(
+          "rounded-lg px-2 py-1 text-[10px] font-bold",
+          openActive
+            ? "animate-pulse bg-sky-500 text-white shadow"
+            : closed
+              ? "bg-slate-700/80 text-slate-300"
+              : "border border-white/10 bg-white/5 text-slate-500",
+        )}
+        title={session.openIso || ""}
+      >
+        פתיחה {formatIsraelTime(session.openIso)}
+      </span>
+      <span
+        className={cn(
+          "rounded-lg px-2 py-1 text-[10px] font-bold",
+          closed ? closeTone : "border border-white/10 bg-white/5 text-slate-500",
+        )}
+        title={session.closeIso || ""}
+      >
+        סגירה {closed ? `${formatIsraelTime(session.closeIso)}${dur != null ? ` · ${dur}ד׳` : ""}` : ""}
+      </span>
+    </div>
+  );
+}
+
 function SitesPage() {
   const { q: qFromUrl } = Route.useSearch();
   const [search, setSearch] = useState(qFromUrl || "");
-  useEffect(() => { if (qFromUrl) setSearch(qFromUrl); }, [qFromUrl]);
+  useEffect(() => {
+    if (qFromUrl) setSearch(qFromUrl);
+  }, [qFromUrl]);
   const [selectedKey, setSelectedKey] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [expandedKey, setExpandedKey] = useState("");
   const [selectedRegion, setSelectedRegion] = useState<Region>("all");
   const [delayOnlyFilter, setDelayOnlyFilter] = useState(false);
   const [pinLayer, setPinLayer] = useState<MapPinLayer>("all");
   const [mapFitToken, setMapFitToken] = useState(0);
 
   const q = useQuery({
-    queryKey: ["site-atlas"],
-    queryFn: () => getSiteAtlasFn(),
+    queryKey: ["sites-live"],
+    queryFn: () => getSitesLiveFn(),
     staleTime: 5_000,
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
@@ -76,20 +174,15 @@ function SitesPage() {
       if (d.type === "site-pin-click" && typeof d.key === "string") {
         setSelectedKey(d.key);
         setDrawerOpen(true);
-        setExpandedKey(d.key);
       }
+      if (d.type === "warehouse-click") setDrawerOpen(false);
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   }, []);
 
-  const delayCountTotal = useMemo(
-    () => (data?.sites || []).filter(isSiteDelayBottleneck).length,
-    [data],
-  );
-
   const filteredList = useMemo(() => {
-    if (!data?.sites) return [];
+    if (!data?.sites) return [] as GasSite[];
     let list = data.sites;
     if (delayOnlyFilter) list = list.filter(isSiteDelayBottleneck);
     if (selectedRegion !== "all") list = list.filter((s) => getSiteRegion(s.city) === selectedRegion);
@@ -98,7 +191,7 @@ function SitesPage() {
     const term = search.trim().toLowerCase();
     if (term) {
       list = list.filter((site) =>
-        [site.address, site.city, site.customerName, site.customerNo]
+        [site.address, site.city, site.customer, site.customerNo]
           .filter(Boolean)
           .some((v) => v.toLowerCase().includes(term)),
       );
@@ -109,34 +202,85 @@ function SitesPage() {
   const selectedSite = useMemo(() => {
     if (!selectedKey) return null;
     return (
-      filteredList.find((s) => (s.siteKey || `${s.city}|${s.address}`) === selectedKey) ||
-      data?.sites?.find((s) => (s.siteKey || `${s.city}|${s.address}`) === selectedKey) ||
+      filteredList.find((s) => s.siteKey === selectedKey) ||
+      data?.sites?.find((s) => s.siteKey === selectedKey) ||
       null
     );
   }, [filteredList, selectedKey, data]);
 
-  const mappedCount = filteredList.filter((s) => isValidMapCoord(s.latitude, s.longitude)).length;
-
-  const mapHtml = useMemo(() => {
-    return generateInteractiveMapHtml(
-      filteredList,
-      selectedSite?.siteKey || (selectedSite ? `${selectedSite.city}|${selectedSite.address}` : undefined),
-      cartoKey,
-      pinLayer,
-    );
-  }, [filteredList, selectedSite, cartoKey, pinLayer, mapFitToken]);
-
-  const selectedAdvice = selectedSite ? buildUnloadAdvice(selectedSite) : null;
+  const mappedCount = filteredList.filter((s) => s.hasCoords && isValidMapCoord(s.lat, s.lng)).length;
   const slowCount = useMemo(() => filteredList.filter(isSlowUnload).length, [filteredList]);
   const redCount = useMemo(() => filteredList.filter(isSiteDelayBottleneck).length, [filteredList]);
 
-  const openNoaChat = (site: NonNullable<typeof selectedSite>) => {
-    const qText = encodeURIComponent(
-      `תני סקירת מודיעין לאתר: ${site.customerName || ""} #${site.customerNo || ""} · ${site.address}, ${site.city}. ` +
-        `משך פריקה היסטורי, חריגות מעל 20 דק׳, והמלצת שיבוץ מהחרש 10 הוד השרון.`,
+  const selectedNotes = useMemo(
+    () => (selectedSite && data ? matchSiteNotes(selectedSite, data.notes) : []),
+    [selectedSite, data],
+  );
+  const selectedPto = useMemo(
+    () => (selectedSite && data ? matchSitePto(selectedSite, data.ptoSessions) : []),
+    [selectedSite, data],
+  );
+
+  const hikmatProgress = useMemo(() => {
+    if (!data?.hikmatRound) return null;
+    const h = data.hikmatRound;
+    return {
+      active: h.active || h.totalStopsToday > 0,
+      completedStops: h.completedStops,
+      totalStopsToday: h.totalStopsToday,
+      progressPct: h.progressPct,
+      openLabel: h.openStop?.address || h.openStop?.driver || "",
+      etaBackHe: h.etaBackIso ? formatIsraelTime(h.etaBackIso) : "",
+    };
+  }, [data]);
+
+  const mapHtml = useMemo(() => {
+    return generateInteractiveMapHtml(
+      filteredList.map((s) => ({
+        siteKey: s.siteKey,
+        customer: s.customer,
+        customerNo: s.customerNo,
+        address: s.address,
+        city: s.city,
+        lat: s.lat,
+        lng: s.lng,
+        hasCoords: s.hasCoords,
+        avgStopMin: s.avgStopMin,
+        maxStopMin: s.maxStopMin,
+        over20: s.over20,
+        severity: s.severity,
+        driveHarashMin: s.driveHarashMin,
+        driveTalmidMin: s.driveTalmidMin,
+        totalMissionHarashMin: s.totalMissionHarashMin,
+        totalMissionTalmidMin: s.totalMissionTalmidMin,
+        visits: s.visits,
+      })),
+      selectedSite?.siteKey,
+      cartoKey,
+      pinLayer,
+      (data?.warehouses || []).map((w) => ({
+        id: w.id,
+        key: w.key,
+        name: w.name,
+        address: w.address,
+        lat: w.lat,
+        lng: w.lng,
+        short: w.short,
+        loadDelayPct: data?.warehouseLoadDelay?.[w.id as "harash_10" | "hatalmid_6"],
+      })),
+      hikmatProgress,
+      data?.warehouseLoadDelay as Record<string, number> | undefined,
     );
-    window.location.href = `/chat?q=${qText}`;
-  };
+  }, [filteredList, selectedSite, cartoKey, pinLayer, data, hikmatProgress, mapFitToken]);
+
+  const advice = selectedSite ? buildUnloadAdvice(selectedSite) : null;
+
+  const wazeUrl =
+    selectedSite && isValidMapCoord(selectedSite.lat, selectedSite.lng)
+      ? `https://waze.com/ul?ll=${selectedSite.lat},${selectedSite.lng}&navigate=yes`
+      : selectedSite
+        ? `https://waze.com/ul?q=${encodeURIComponent(`${selectedSite.address} ${selectedSite.city}`)}`
+        : "#";
 
   return (
     <>
@@ -144,29 +288,38 @@ function SitesPage() {
         title="מודיעין אתרים · תכנון לסדרן"
         subtitle={
           data
-            ? `${data.sites.length} כתובות · ${mappedCount} סיכות · ${slowCount} מעכבים · ${redCount} צווארי בקבוק · מפה: ${cartoKey ? "CARTO" : "ללא מפתח"}`
-            : "טוען…"
+            ? `${data.sites.length} אתרים · ${mappedCount} סיכות · ${slowCount} מעכבים · ${redCount} קריטיים · ${q.isFetching ? "מסנכרן…" : "חי 30ש׳"}`
+            : "טוען מ-GAS…"
         }
         action={
-          <button type="button" onClick={() => void q.refetch()} disabled={q.isFetching}
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold hover:bg-muted disabled:opacity-60">
+          <button
+            type="button"
+            onClick={() => void q.refetch()}
+            disabled={q.isFetching}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold hover:bg-muted disabled:opacity-60"
+          >
             <RefreshCw className={cn("h-4 w-4", q.isFetching && "animate-spin")} />
             רענון
           </button>
         }
       />
 
-      <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 md:px-8" dir="rtl">
+      <main className="mx-auto max-w-7xl space-y-4 px-4 py-5 md:px-8" dir="rtl">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
             { label: "אתרים", value: data?.sites.length ?? "—", icon: MapPin },
             { label: "על המפה", value: mappedCount, icon: Building2 },
             { label: "מעל 20 דק׳", value: slowCount, icon: AlertTriangle },
-            { label: "מפתח CARTO", value: cartoKey ? "פעיל" : "חסר", icon: CheckCircle2 },
+            {
+              label: "סבב חכמת",
+              value: data ? `${data.hikmatRound.completedStops}/${data.hikmatRound.totalStopsToday}` : "—",
+              icon: Clock,
+            },
           ].map((m) => (
             <div key={m.label} className="rounded-2xl border bg-card p-4 shadow-sm">
               <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground">
-                <m.icon className="h-3.5 w-3.5" />{m.label}
+                <m.icon className="h-3.5 w-3.5" />
+                {m.label}
               </div>
               <div className="mt-1 font-display text-xl font-extrabold tabular-nums">{m.value}</div>
             </div>
@@ -174,226 +327,289 @@ function SitesPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          {(["all", "sharon", "center", "north", "south"] as Region[]).map((r) => (
-            <button key={r} type="button" onClick={() => setSelectedRegion(r)}
-              className={cn("rounded-xl px-3 py-1.5 text-xs font-bold",
-                selectedRegion === r ? "bg-primary text-primary-foreground" : "bg-muted/50 hover:bg-muted")}>
-              {r === "all" ? "הכל" : r === "sharon" ? "השרון" : r === "center" ? "מרכז" : r === "north" ? "צפון" : "דרום"}
-            </button>
-          ))}
-          <button type="button" onClick={() => setDelayOnlyFilter((v) => !v)}
-            className={cn("rounded-xl px-3 py-1.5 text-xs font-bold",
-              delayOnlyFilter ? "bg-red-600 text-white" : "bg-muted/50 hover:bg-muted")}>
-            צווארי בקבוק ({delayCountTotal})
-          </button>
-          <span className="mx-1 text-[10px] font-bold text-muted-foreground">סיכות:</span>
-          {([["all", "הכל"], ["slow", `מעל ${SLOW_UNLOAD_MIN} דק׳ (${slowCount})`], ["normal", "שגרתיים"]] as const).map(([id, label]) => (
-            <button key={id} type="button" onClick={() => setPinLayer(id)}
-              className={cn("rounded-xl px-3 py-1.5 text-xs font-bold",
-                pinLayer === id ? "bg-teal-700 text-white" : "bg-muted/50 hover:bg-muted")}>
+          <div className="relative min-w-[12rem] flex-1">
+            <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="חיפוש לקוח / כתובת / מספר…"
+              className="h-10 w-full rounded-xl border bg-background pr-9 pl-3 text-sm"
+            />
+          </div>
+          {(
+            [
+              ["all", "כל האזורים"],
+              ["sharon", "שרון"],
+              ["center", "מרכז"],
+              ["north", "צפון"],
+              ["south", "דרום"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setSelectedRegion(id)}
+              className={cn(
+                "h-10 rounded-xl border px-3 text-xs font-bold",
+                selectedRegion === id ? "border-emerald-500 bg-emerald-500/10 text-emerald-700" : "hover:bg-muted",
+              )}
+            >
               {label}
             </button>
           ))}
-          <div className="relative min-w-[12rem] flex-1">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="חיפוש כתובת / לקוח / מס׳ לקוח…"
-              className="min-h-10 w-full rounded-xl border bg-card py-2 pe-10 ps-3 text-sm" />
+          <button
+            type="button"
+            onClick={() => setDelayOnlyFilter((v) => !v)}
+            className={cn(
+              "h-10 rounded-xl border px-3 text-xs font-bold",
+              delayOnlyFilter ? "border-red-500 bg-red-500/10 text-red-700" : "hover:bg-muted",
+            )}
+          >
+            צווארי בקבוק
+          </button>
+          <button
+            type="button"
+            onClick={() => setMapFitToken((n) => n + 1)}
+            className="h-10 rounded-xl border px-3 text-xs font-bold hover:bg-muted"
+          >
+            התאם מפה
+          </button>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+          <div className="relative h-[min(62vh,560px)] w-full bg-slate-950">
+            {q.isError ? (
+              <div className="flex h-full items-center justify-center p-6 text-center text-sm text-red-300">
+                {q.error instanceof Error ? q.error.message : "שגיאה בטעינת אתרים"}
+              </div>
+            ) : (
+              <iframe title="מפת אתרים" className="h-full w-full border-0" srcDoc={mapHtml} />
+            )}
+            <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-slate-950/85 px-2.5 py-1 text-[10px] font-bold text-emerald-300">
+              <span className={cn("h-2 w-2 rounded-full bg-emerald-400", q.isFetching ? "animate-pulse" : "")} />
+              {q.isFetching ? "מסנכרן…" : "חי"}
+            </div>
           </div>
         </div>
 
-        <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-            <div>
-              <h2 className="font-display font-bold">מפת מודיעין אספקה</h2>
-              <p className="text-xs text-muted-foreground">
-                <Warehouse className="me-1 inline h-3.5 w-3.5" />
-                מוצא: {WAREHOUSE.label} · ירוק ≤20 · כתום 21–40 · אדום &gt;40
-                {cartoKey ? " · CARTO פעיל" : " · חסר מפתח CARTO"}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setMapFitToken((n) => n + 1)}
-                className="inline-flex min-h-9 items-center gap-1 rounded-xl border px-3 text-xs font-bold hover:bg-muted">
-                <Navigation className="h-3.5 w-3.5" /> התאם מפה לסיכות
-              </button>
-            </div>
-          </div>
-          <iframe
-            key={`map-${pinLayer}-${selectedKey}-${mappedCount}-${mapFitToken}`}
-            title="מפת אתרי אספקה"
-            srcDoc={mapHtml}
-            className="h-[420px] w-full border-0 md:h-[520px]"
-            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
-          />
-
-          {drawerOpen && selectedSite && selectedAdvice && (
-            <div className="space-y-4 border-t bg-muted/30 px-4 py-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-display text-lg font-extrabold">{selectedSite.customerName || "אתר אספקה"}</h3>
-                    {selectedSite.customerNo && (
-                      <span className="rounded-lg bg-muted px-2 py-0.5 text-xs font-bold tabular-nums">#{selectedSite.customerNo}</span>
-                    )}
-                    <span className={cn("rounded-lg px-2 py-0.5 text-xs font-bold",
-                      selectedAdvice.level === "severe" ? "bg-red-100 text-red-800"
-                        : selectedAdvice.level === "slow" ? "bg-orange-100 text-orange-900"
-                          : "bg-emerald-100 text-emerald-800")}>
-                      {selectedAdvice.levelHe}
-                    </span>
-                  </div>
-                  <p className="text-sm font-semibold">{selectedSite.address}{selectedSite.city ? `, ${selectedSite.city}` : ""}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {isValidMapCoord(selectedSite.latitude, selectedSite.longitude) && (
-                    <>
-                      <a className="inline-flex min-h-9 items-center gap-1 rounded-xl bg-sky-600 px-3 text-xs font-bold text-white"
-                        href={`https://waze.com/ul?ll=${selectedSite.latitude},${selectedSite.longitude}&navigate=yes`} target="_blank" rel="noreferrer">Waze</a>
-                      <a className="inline-flex min-h-9 items-center gap-1 rounded-xl border px-3 text-xs font-bold hover:bg-muted"
-                        href={`https://www.google.com/maps/dir/?api=1&origin=${WAREHOUSE.lat},${WAREHOUSE.lng}&destination=${selectedSite.latitude},${selectedSite.longitude}`} target="_blank" rel="noreferrer">Google</a>
-                    </>
+        <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+          <div className="border-b px-4 py-3 text-sm font-extrabold">אתרים ({filteredList.length})</div>
+          <div className="max-h-[28rem] divide-y overflow-y-auto">
+            {filteredList.map((site) => {
+              const sev = pinSeverityFromSite(site);
+              const sessions = data ? matchSitePto(site, data.ptoSessions) : [];
+              const live = sessions.find((s) => s.orphan === "missing_close") || sessions[0];
+              return (
+                <button
+                  key={site.siteKey}
+                  type="button"
+                  onClick={() => {
+                    setSelectedKey(site.siteKey);
+                    setDrawerOpen(true);
+                  }}
+                  className={cn(
+                    "flex w-full flex-col gap-2 px-4 py-3 text-right transition hover:bg-muted/60",
+                    selectedKey === site.siteKey && "bg-emerald-500/5",
                   )}
-                  <button type="button" onClick={() => openNoaChat(selectedSite)}
-                    className="inline-flex min-h-9 items-center gap-1 rounded-xl border border-violet-300 bg-violet-50 px-3 text-xs font-bold text-violet-900">
-                    <MessageCircle className="h-3.5 w-3.5" /> שאל את נועה
-                  </button>
-                  <button type="button" onClick={() => setDrawerOpen(false)} className="rounded-xl border px-3 text-xs font-bold hover:bg-muted">סגור</button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                {[
-                  { label: "צפי נסיעה מהחרש 10", value: selectedAdvice.driveMin != null ? `${selectedAdvice.driveMin} דק׳` : "—" },
-                  { label: "ממוצע פריקה", value: `${selectedAdvice.expectedMin} דק׳` },
-                  { label: "סה״כ משימה צפוי", value: selectedAdvice.totalMissionMin != null ? `${selectedAdvice.totalMissionMin} דק׳` : "—" },
-                  { label: "שיא שהייה", value: selectedSite.maxMin != null ? `${selectedSite.maxMin} דק׳` : "—" },
-                ].map((k) => (
-                  <div key={k.label} className="rounded-xl border bg-card p-3 shadow-sm">
-                    <div className="text-[10px] font-bold text-muted-foreground">{k.label}</div>
-                    <div className="mt-1 font-display text-lg font-extrabold tabular-nums">{k.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid gap-2 md:grid-cols-2">
-                <div className="rounded-xl border bg-muted/30 p-3 text-xs leading-relaxed">
-                  <div className="mb-1 font-bold text-muted-foreground">שיקול דעת לסדרן</div>
-                  <p>{selectedAdvice.opinionHe}</p>
-                </div>
-                <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 text-xs leading-relaxed">
-                  <div className="mb-1 font-bold text-violet-800">המלצת תכנון</div>
-                  <p>{selectedAdvice.aiRecommendHe}</p>
-                </div>
-              </div>
-
-              {(selectedSite.visitHistory || []).length > 0 && (
-                <div>
-                  <h4 className="mb-2 text-xs font-bold text-muted-foreground">היסטוריית ביקורים / PTO ({selectedSite.visitHistory.length})</h4>
-                  <ol className="max-h-48 space-y-2 overflow-y-auto">
-                    {selectedSite.visitHistory.slice(0, 15).map((visit, index) => (
-                      <li key={`${visit.dateIso}-${index}`} className="rounded-xl border bg-card p-3 text-xs">
-                        <div className="flex flex-wrap justify-between gap-2 font-bold">
-                          <span>{visit.dateIso ? fmtShort(visit.dateIso) : "—"}</span>
-                          <span className="font-normal text-muted-foreground">
-                            {visit.driver}
-                            {visit.durationMin != null ? ` · ${visit.durationMin} דק׳` : ""}
-                            {visit.ptoMin != null ? ` · PTO ${visit.ptoMin}` : ""}
-                          </span>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {(visit.notes || []).map((id) => (
-                            <a key={id} href={`/notes/${encodeURIComponent(id)}`}
-                              className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-semibold hover:bg-muted">
-                              <FileText className="h-3 w-3" /> ת.מ. {id}
-                            </a>
-                          ))}
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-
-              {selectedSite.customerNo && (
-                <Link to="/customers/$id" params={{ id: String(selectedSite.customerNo) }}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-sky-700 hover:underline">
-                  <Users className="h-3.5 w-3.5" /> פתיחת תיק לקוח
-                </Link>
-              )}
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-3">
-          <h2 className="font-display text-lg font-extrabold">רשימת אתרים ({filteredList.length})</h2>
-          {filteredList.map((site, i) => {
-            const key = site.siteKey || `${site.city}|${site.address}`;
-            const expanded = expandedKey === key;
-            const sev = pinSeverity(site);
-            const advice = buildUnloadAdvice(site);
-            return (
-              <article key={`${key}-${i}`} className={cn("overflow-hidden rounded-2xl border bg-card shadow-sm",
-                selectedKey === key && "border-primary/50",
-                sev === "red" && "border-red-200",
-                sev === "orange" && "border-orange-200")}>
-                <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-                  <button type="button" onClick={() => { setSelectedKey(key); setDrawerOpen(true); }}
-                    className="flex min-h-12 min-w-0 flex-1 items-start gap-3 rounded-xl text-start">
-                    <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm",
-                      sev === "red" ? "bg-red-100" : sev === "orange" ? "bg-orange-100" : "bg-emerald-100")}>
-                      {sev === "red" ? "🔴" : sev === "orange" ? "🟠" : "🟢"}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate font-bold">{site.address}</span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {[site.city, site.customerName, site.customerNo && `#${site.customerNo}`].filter(Boolean).join(" · ")}
-                      </span>
-                      {advice.driveMin != null && (
-                        <span className="mt-0.5 block text-[11px] font-semibold text-teal-700">
-                          נסיעה ~{advice.driveMin} + פריקה ~{advice.expectedMin} = {advice.totalMissionMin} דק׳
-                        </span>
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-extrabold">
+                        {site.customer || "לקוח"}{" "}
+                        {site.customerNo ? <span className="text-emerald-600">#{site.customerNo}</span> : null}
+                      </div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {site.address}
+                        {site.city ? ` · ${site.city}` : ""}
+                      </div>
+                    </div>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-bold text-white",
+                        sev === "red" ? "bg-red-600" : sev === "orange" ? "bg-amber-600" : "bg-emerald-600",
                       )}
+                    >
+                      {sev === "red" ? "קריטי" : sev === "orange" ? "מעכב" : "תקין"}
                     </span>
-                  </button>
-                  <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                    <span className="rounded-lg bg-muted/40 px-2 py-1">ביקורים: {site.visits}</span>
-                    <span className="rounded-lg bg-muted/40 px-2 py-1">חציון: {site.medianMin != null ? `${site.medianMin}ד׳` : "—"}</span>
-                    <span className="rounded-lg bg-muted/40 px-2 py-1">P80: {site.p80Min != null ? `${site.p80Min}ד׳` : "—"}</span>
-                    <span className="rounded-lg bg-muted/40 px-2 py-1">צפי: {getExpectedUnloadingMinutes(site)}ד׳</span>
                   </div>
-                  <button type="button" onClick={() => setExpandedKey(expanded ? "" : key)}
-                    className="rounded-xl border px-3 py-2 text-xs font-bold hover:bg-muted">{expanded ? "סגור" : "היסטוריה"}</button>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[11px] text-muted-foreground">
+                      ביקורים {site.visits} · ממוצע {site.avgStopMin ?? "—"}ד׳ · שיא {site.maxStopMin ?? "—"}ד׳
+                    </div>
+                    <PtoStatusButtons session={live} />
+                  </div>
+                </button>
+              );
+            })}
+            {!filteredList.length && (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">אין אתרים להצגה</div>
+            )}
+          </div>
+        </div>
+
+        {drawerOpen && selectedSite && (
+          <section className="overflow-hidden rounded-2xl border bg-card shadow-lg">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-4">
+              <div className="min-w-0">
+                <h2 className="text-lg font-extrabold tracking-tight">
+                  {selectedSite.customer || "אתר"}{" "}
+                  {selectedSite.customerNo ? <span className="text-emerald-600">#{selectedSite.customerNo}</span> : null}
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  {selectedSite.address}
+                  {selectedSite.city ? ` · ${selectedSite.city}` : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={wazeUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-sky-600 px-3 text-xs font-bold text-white"
+                >
+                  <Navigation className="h-3.5 w-3.5" />
+                  Waze
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setDrawerOpen(false)}
+                  className="min-h-10 rounded-xl border px-3 text-xs font-bold hover:bg-muted"
+                >
+                  סגור
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
+              {[
+                {
+                  label: "נסיעה מהחרש 10",
+                  value:
+                    selectedSite.driveHarashMin != null
+                      ? `${Math.round(selectedSite.driveHarashMin)} דק׳`
+                      : advice?.driveMin != null
+                        ? `${advice.driveMin} דק׳`
+                        : "—",
+                  icon: Warehouse,
+                },
+                {
+                  label: "נסיעה מהתלמיד 6",
+                  value:
+                    selectedSite.driveTalmidMin != null ? `${Math.round(selectedSite.driveTalmidMin)} דק׳` : "—",
+                  icon: Warehouse,
+                },
+                {
+                  label: "ממוצע פריקה",
+                  value: selectedSite.avgStopMin != null ? `${Math.round(selectedSite.avgStopMin)} דק׳` : "—",
+                  icon: Clock,
+                },
+                {
+                  label: "שיא שהייה",
+                  value: selectedSite.maxStopMin != null ? `${Math.round(selectedSite.maxStopMin)} דק׳` : "—",
+                  icon: AlertTriangle,
+                },
+              ].map((k) => (
+                <div key={k.label} className="rounded-xl border bg-muted/30 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground">
+                    <k.icon className="h-3.5 w-3.5" />
+                    {k.label}
+                  </div>
+                  <div className="mt-1 text-base font-extrabold tabular-nums">{k.value}</div>
                 </div>
-                {expanded && (
-                  <div className="border-t bg-muted/20 p-4">
-                    {(site.visitHistory || []).length ? (
-                      <ol className="space-y-2">
-                        {(site.visitHistory || []).slice(0, 12).map((visit, index) => (
-                          <li key={`${visit.dateIso}-${index}`} className="rounded-xl border bg-card p-3 text-xs">
-                            <div className="flex flex-wrap justify-between gap-2 font-bold">
-                              <span>{visit.dateIso ? fmtShort(visit.dateIso) : "—"}</span>
-                              <span className="font-normal text-muted-foreground">
-                                {visit.driver}{visit.durationMin != null ? ` · ${visit.durationMin} דק׳` : ""}
-                                {visit.ptoMin != null ? ` · PTO ${visit.ptoMin}` : ""}
-                              </span>
-                            </div>
-                          </li>
-                        ))}
-                      </ol>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">אין היסטוריית ביקורים.</p>
-                    )}
-                  </div>
-                )}
-              </article>
-            );
-          })}
-          {!filteredList.length && (
-            <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">אין אתרים בסינון.</p>
-          )}
-        </section>
+              ))}
+            </div>
+
+            <div className="grid gap-4 border-t p-4 lg:grid-cols-2">
+              <div>
+                <h3 className="mb-2 text-sm font-extrabold">תעודות משלוח</h3>
+                <div className="overflow-hidden rounded-xl border">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-muted/50 text-[10px] text-muted-foreground">
+                      <tr>
+                        <th className="px-2 py-2 font-bold">תאריך</th>
+                        <th className="px-2 py-2 font-bold">תעודה</th>
+                        <th className="px-2 py-2 font-bold">נהג</th>
+                        <th className="px-2 py-2 font-bold">GPS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedNotes.map((n) => (
+                        <tr key={n.id} className="border-t">
+                          <td className="px-2 py-2">{n.date || "—"}</td>
+                          <td className="px-2 py-2">
+                            {n.driveUrl ? (
+                              <a
+                                href={n.driveUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 font-bold text-emerald-700"
+                              >
+                                {n.id} <ExternalLink className="h-3 w-3" />
+                              </a>
+                            ) : (
+                              <Link to="/notes/$id" params={{ id: n.id }} className="font-bold text-emerald-700">
+                                {n.id}
+                              </Link>
+                            )}
+                          </td>
+                          <td className="px-2 py-2">{n.driver || "—"}</td>
+                          <td className="px-2 py-2">{n.hasGpsMatch ? "✓" : "—"}</td>
+                        </tr>
+                      ))}
+                      {!selectedNotes.length && (
+                        <tr>
+                          <td colSpan={4} className="px-2 py-4 text-center text-muted-foreground">
+                            אין תעודות מוצלבות בטווח
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="mb-2 text-sm font-extrabold">סשני PTO</h3>
+                <div className="space-y-2">
+                  {selectedPto.map((s) => (
+                    <div key={s.id} className="rounded-xl border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-bold">
+                          {s.truck || "משאית"} · {s.driver || "נהג"}
+                        </div>
+                        <PtoStatusButtons session={s} />
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">{s.address || "כתובת לא ידועה"}</div>
+                      {s.matchedNoteId && (
+                        <div className="mt-1 text-[11px]">
+                          תעודה משויכת:{" "}
+                          <Link to="/notes/$id" params={{ id: s.matchedNoteId }} className="font-bold text-emerald-700">
+                            {s.matchedNoteId}
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {!selectedPto.length && (
+                    <div className="rounded-xl border px-3 py-4 text-center text-xs text-muted-foreground">
+                      אין סשני PTO מוצלבים
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {advice && (
+              <div className="border-t px-4 py-3 text-xs text-muted-foreground">
+                סה״כ משימה (נסיעה+פריקה): <b className="text-foreground">{advice.totalMissionMin ?? "—"} דק׳</b>
+                {" · "}
+                רמת אתר: <b className="text-foreground">{advice.levelHe}</b>
+                {" · "}
+                {advice.aiRecommendHe}
+              </div>
+            )}
+          </section>
+        )}
       </main>
     </>
   );
