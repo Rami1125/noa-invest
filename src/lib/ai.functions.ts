@@ -12,7 +12,7 @@ type SourceResult = { available: boolean; count: number; records?: unknown[]; er
 
 const MASTER_SHEET_ID = "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw";
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbx008PcNLu8BfjNIudaTDa74a7rVmlPpImBK9QaLR9ITxLR1ahNQjzmgmY-39275eQXng/exec";
+  "https://script.google.com/macros/s/AKfycbx9d834wq3wm3z4XNHu7jIIhamopctR9dlHra6o4-PgYaflAhe3-VcYxNB4_abRkm_yyQ/exec";
 
 function gasConfig() {
   const token = process.env["API_TOKEN"];
@@ -405,7 +405,8 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
       "GEMINI_API_KEY לא מוגדר או לא תקין (צפוי מפתח שמתחיל ב-AIza…; ברשימה — הפרד בפסיק או שורה)",
     );
   }
-  const model = (process.env["GEMINI_MODEL"] || "gemini-2.0-flash").trim();
+  // gemini-2.0-flash הוצא משירות — ברירת מחדל gemini-3.8-flash
+  const model = (process.env["GEMINI_MODEL"] || "gemini-3.8-flash").trim();
 
   const systemPrompt = String(instructions || "").trim() || "את נועה — עוזרת חמ״ל לוגיסטי.";
   const contents = buildGeminiContents(messages);
@@ -414,6 +415,7 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
     temperature: 0.3,
     maxOutputTokens: 4096,
   };
+  // thinkingConfig רק ל-gemini-2.5-* (במודלים אחרים עלול להחזיר 400)
   if (/^gemini-2\.5/i.test(model) || model.includes("2.5")) {
     generationConfig.thinkingConfig = { thinkingBudget: 0 };
   }
@@ -468,7 +470,7 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
       } catch (e) {
         lastErr = e instanceof Error ? e.message : String(e);
         if (/API_KEY_INVALID|API key not valid/i.test(lastErr)) break;
-        if (/HTTP 400/.test(lastErr)) throw new Error(lastErr);
+        if (/HTTP 400|HTTP 404/.test(lastErr)) throw new Error(lastErr);
         if (attempt < 1) await sleepMs(600 * (attempt + 1));
       }
     }
