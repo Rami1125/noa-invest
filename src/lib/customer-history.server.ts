@@ -19,6 +19,7 @@ const TABS = {
 export type HNote = {
   id: string; dateIso: string; customerNo: string; customerName: string; address: string;
   driver: string; truck: string; itemsText: string; status: string;
+  driveUrl?: string; itStop?: number | null; depositsText?: string;
 };
 export type HOrder = {
   id: string; dateIso: string; customerNo: string; address: string; status: string; noteId: string;
@@ -81,7 +82,6 @@ type Raw = Record<keyof typeof TABS, Row[]>;
 
 async function readTab(name: string): Promise<Row[]> {
   try {
-    // readGoogleSheetBatch מחזיר values[][] ישירות — לא { values }
     const values = (await readGoogleSheetBatch(
       MASTER_SHEET_ID,
       `${name}!A1:ZZ`,
@@ -95,13 +95,8 @@ async function readTab(name: string): Promise<Row[]> {
         const cell = row[i];
         o[h] = cell == null ? "" : String(cell).trim();
       });
-      // גיבוי עמודות M/N (אינדקס 12/13) אם הכותרת לא lat/lng
-      if (!o["lat"] && row[12] != null && String(row[12]).trim() !== "") {
-        o["lat"] = String(row[12]).trim();
-      }
-      if (!o["lng"] && row[13] != null && String(row[13]).trim() !== "") {
-        o["lng"] = String(row[13]).trim();
-      }
+      if (!o["lat"] && row[12] != null && String(row[12]).trim() !== "") o["lat"] = String(row[12]).trim();
+      if (!o["lng"] && row[13] != null && String(row[13]).trim() !== "") o["lng"] = String(row[13]).trim();
       return o;
     });
   } catch {
@@ -113,9 +108,7 @@ async function loadRaw(): Promise<Raw> {
   const keys = Object.keys(TABS) as (keyof typeof TABS)[];
   const rows = await Promise.all(keys.map((k) => readTab(TABS[k])));
   const out = {} as Raw;
-  keys.forEach((k, i) => {
-    out[k] = rows[i]!;
-  });
+  keys.forEach((k, i) => { out[k] = rows[i]!; });
   return out;
 }
 
@@ -154,16 +147,21 @@ function mapVisit(row: Row): HVisit {
 }
 
 function mapNote(row: Row): HNote {
+  const stopRaw = g(row, "שהייה איתוראן דק'") || g(row, "itStop") || g(row, "שהייה דק'");
+  const stop = num(stopRaw);
   return {
-    id: g(row, "מס' תעודה") || g(row, "מספר תעודה"),
+    id: (g(row, "מס' תעודה") || g(row, "מספר תעודה") || g(row, "מס' תעודת משלוח")).replace(/\.0+$/, ""),
     dateIso: toIso(g(row, "תאריך תעודה") || g(row, "תאריך")),
-    customerNo: g(row, "מס' לקוח"),
+    customerNo: (g(row, "מס' לקוח") || "").replace(/\.0+$/, ""),
     customerName: g(row, "שם לקוח"),
     address: g(row, "כתובת אספקה") || g(row, "כתובת"),
     driver: g(row, "נהג"),
     truck: g(row, "משאית"),
     itemsText: g(row, "פריטים") || g(row, "פירוט"),
     status: g(row, "סטטוס"),
+    driveUrl: g(row, "כתובת הקובץ (URL)") || g(row, "driveUrl") || g(row, "קישור לתעודה"),
+    itStop: stop != null && stop > 0 ? stop : null,
+    depositsText: g(row, "פקדונות") || g(row, "depositsText") || g(row, "טקסט פקדונות"),
   };
 }
 
@@ -171,7 +169,7 @@ function mapOrder(row: Row): HOrder {
   return {
     id: g(row, "מס' הזמנה") || g(row, "הזמנה"),
     dateIso: toIso(g(row, "תאריך")),
-    customerNo: g(row, "מס' לקוח"),
+    customerNo: (g(row, "מס' לקוח") || g(row, "מספר לקוח") || "").replace(/\.0+$/, ""),
     address: g(row, "כתובת"),
     status: g(row, "סטטוס"),
     noteId: g(row, "מס' תעודה"),
@@ -196,7 +194,7 @@ function mapIturanVisit(row: Row): HIturanVisit {
 function buildIndex(raw: Raw): Map<string, CustomerSummary> {
   const out = new Map<string, CustomerSummary>();
   for (const row of raw.notes) {
-    const no = g(row, "מס' לקוח");
+    const no = (g(row, "מס' לקוח") || "").replace(/\.0+$/, "");
     if (!no) continue;
     const existing = out.get(no);
     const name = g(row, "שם לקוח");
@@ -232,8 +230,75 @@ function buildIndex(raw: Raw): Map<string, CustomerSummary> {
 
 export async function loadCustomerIndex() {
   const raw = await loadRaw();
-  const customers = [...buildIndex(raw).values()].sort((a, b) => b.lastIso.localeCompare(a.lastIso));
-  return { customers, source: "גיליון", generatedAt: new Date().toISOString() };
+  const byNo = buildIndex(raw);
+
+  const ordersByNo = new Map<string, number>();
+  for (const row of raw.orders) {
+    const no = (g(row, "מס' לקוח") || g(row, "מספר לקוח") || "").replace(/\.0+$/, "");
+    if (!no) continue;
+    ordersByNo.set(no, (ordersByNo.get(no) || 0) + 1);
+  }
+
+  const openInqByNo = new Map<string, number>();
+  for (const row of raw.inquiries) {
+    const no = (g(row, "מס' לקוח") || "").replace(/\.0+$/, "");
+    const status = g(row, "סטטוס");
+    const closed = /סגור|closed|done|הושלם|אושר/i.test(status);
+    if (!no || closed) continue;
+    openInqByNo.set(no, (openInqByNo.get(no) || 0) + 1);
+  }
+
+  const stopSamples = new Map<string, number[]>();
+  for (const row of raw.notes) {
+    const no = (g(row, "מס' לקוח") || "").replace(/\.0+$/, "");
+    const stop = num(g(row, "שהייה איתוראן דק'") || g(row, "שהייה דק'") || g(row, "itStop"));
+    if (!no || stop == null || stop <= 0) continue;
+    const arr = stopSamples.get(no) || [];
+    arr.push(stop);
+    stopSamples.set(no, arr);
+  }
+  for (const row of raw.sites) {
+    const no = (g(row, "מס' לקוח") || "").replace(/\.0+$/, "");
+    const med = num(g(row, "P50 משך באתר") || g(row, "באתר חציון (דק׳)") || g(row, "avgStopMin"));
+    if (!no || med == null || med <= 0) continue;
+    const arr = stopSamples.get(no) || [];
+    arr.push(med);
+    stopSamples.set(no, arr);
+  }
+
+  const notesByNo = new Map<string, Set<string>>();
+  for (const row of raw.notes) {
+    const no = (g(row, "מס' לקוח") || "").replace(/\.0+$/, "");
+    const id = (g(row, "מס' תעודה") || g(row, "מספר תעודה") || g(row, "מס' תעודת משלוח")).replace(/\.0+$/, "");
+    if (!no || !id) continue;
+    const set = notesByNo.get(no) || new Set();
+    set.add(id);
+    notesByNo.set(no, set);
+  }
+
+  for (const [no, c] of byNo) {
+    c.ordersCount = ordersByNo.get(no) || 0;
+    c.openInquiries = openInqByNo.get(no) || 0;
+    const samples = stopSamples.get(no);
+    c.avgSiteMin = samples && samples.length
+      ? Math.round(samples.reduce((a, b) => a + b, 0) / samples.length)
+      : null;
+    const uniq = notesByNo.get(no);
+    if (uniq) c.notesCount = uniq.size;
+  }
+
+  const customers = [...byNo.values()].sort((a, b) => b.lastIso.localeCompare(a.lastIso));
+  return {
+    customers,
+    source: "גיליון",
+    generatedAt: new Date().toISOString(),
+    totals: {
+      customers: customers.length,
+      notes: customers.reduce((a, c) => a + c.notesCount, 0),
+      orders: customers.reduce((a, c) => a + c.ordersCount, 0),
+      openInquiries: customers.reduce((a, c) => a + c.openInquiries, 0),
+    },
+  };
 }
 
 export async function loadCustomerHistory(customerNo: string): Promise<CustomerHistory> {
@@ -257,16 +322,25 @@ export async function loadCustomerHistory(customerNo: string): Promise<CustomerH
   };
   const seen = new Set<string>();
   const notes = raw.notes
-    .filter((r) => g(r, "מס' לקוח") === customerNo)
+    .filter((r) => (g(r, "מס' לקוח") || "").replace(/\.0+$/, "") === customerNo)
     .map(mapNote)
     .filter((n) => n.id && !seen.has(n.id) && !!seen.add(n.id))
     .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
   const ituranVisits = raw.ituranVisits
-    .filter((r) => g(r, "מס' לקוח") === customerNo)
+    .filter((r) => (g(r, "מס' לקוח") || "").replace(/\.0+$/, "") === customerNo)
     .map(mapIturanVisit)
     .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
+  const nameKey = (summary?.name || "").toLowerCase().replace(/["'״׳.,]/g, " ").replace(/\s+/g, " ").trim();
   const orders = raw.orders
-    .filter((r) => g(r, "מס' לקוח") === customerNo)
+    .filter((r) => {
+      const no = (g(r, "מס' לקוח") || g(r, "מספר לקוח") || "").replace(/\.0+$/, "");
+      if (no && no === customerNo) return true;
+      if (nameKey) {
+        const on = (g(r, "שם לקוח") || g(r, "לקוח") || "").toLowerCase().replace(/["'״׳.,]/g, " ").replace(/\s+/g, " ").trim();
+        if (on && (on === nameKey || on.includes(nameKey) || nameKey.includes(on))) return true;
+      }
+      return false;
+    })
     .map(mapOrder)
     .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
   const visits = raw.visits
@@ -274,7 +348,7 @@ export async function loadCustomerHistory(customerNo: string): Promise<CustomerH
     .map(mapVisit)
     .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
   const sites: HSite[] = raw.sites
-    .filter((r) => g(r, "מס' לקוח") === customerNo)
+    .filter((r) => (g(r, "מס' לקוח") || "").replace(/\.0+$/, "") === customerNo)
     .map((r) => ({
       siteKey: g(r, "מפתח אתר"),
       address: g(r, "כתובת"),
@@ -287,7 +361,7 @@ export async function loadCustomerHistory(customerNo: string): Promise<CustomerH
       confidence: g(r, "רמת ביטחון"),
     }));
   const inquiries: HInquiry[] = raw.inquiries
-    .filter((r) => g(r, "מס' לקוח") === customerNo || notes.some((n) => n.id === g(r, "מס' תעודה")))
+    .filter((r) => (g(r, "מס' לקוח") || "").replace(/\.0+$/, "") === customerNo || notes.some((n) => n.id === g(r, "מס' תעודה")))
     .map((r) => ({
       noteId: g(r, "מס' תעודה"),
       reason: g(r, "סיבה"),
@@ -306,8 +380,26 @@ export async function loadCustomerHistory(customerNo: string): Promise<CustomerH
       checkId: g(r, "מזהה בדיקה"),
       result: g(r, "אסמכתא / תוצאת בדיקה"),
     }));
+
+  const stopSamples = notes.map((n) => n.itStop).filter((x): x is number => x != null && x > 0);
+  for (const s of sites) {
+    if (s.medianMin != null && s.medianMin > 0) stopSamples.push(s.medianMin);
+  }
+  const avgSiteMin = stopSamples.length
+    ? Math.round(stopSamples.reduce((a, b) => a + b, 0) / stopSamples.length)
+    : null;
+  const openInquiries = inquiries.filter((i) => !/סגור|closed|done|הושלם/i.test(i.status)).length;
+  const cust: CustomerSummary = {
+    ...(summary ?? empty),
+    notesCount: notes.length,
+    ordersCount: orders.length,
+    visitsCount: visits.length + ituranVisits.length,
+    avgSiteMin,
+    openInquiries,
+  };
+
   return {
-    customer: summary ?? empty,
+    customer: cust,
     notes,
     orders,
     ituranVisits,
@@ -319,7 +411,6 @@ export async function loadCustomerHistory(customerNo: string): Promise<CustomerH
   };
 }
 
-/** אטלס אתרים למפה — lat/lng מעמודות M/N */
 export async function loadSiteAtlas() {
   const raw = await loadRaw();
   const visitsBySite = new Map<string, HVisit[]>();
@@ -342,18 +433,9 @@ export async function loadSiteAtlas() {
     const key = siteKey || `${city}|${address}`;
     const history = (visitsBySite.get(key) || []).sort((a, b) => b.dateIso.localeCompare(a.dateIso));
     let latitude =
-      parseCoord(g(row, "lat")) ??
-      parseCoord(g(row, "Lat")) ??
-      parseCoord(g(row, "LAT")) ??
-      parseCoord(g(row, "latitude")) ??
-      parseCoord(g(row, "קו רוחב"));
+      parseCoord(g(row, "lat")) ?? parseCoord(g(row, "Lat")) ?? parseCoord(g(row, "latitude")) ?? parseCoord(g(row, "קו רוחב"));
     let longitude =
-      parseCoord(g(row, "lng")) ??
-      parseCoord(g(row, "Lng")) ??
-      parseCoord(g(row, "LNG")) ??
-      parseCoord(g(row, "lon")) ??
-      parseCoord(g(row, "longitude")) ??
-      parseCoord(g(row, "קו אורך"));
+      parseCoord(g(row, "lng")) ?? parseCoord(g(row, "Lng")) ?? parseCoord(g(row, "lon")) ?? parseCoord(g(row, "longitude")) ?? parseCoord(g(row, "קו אורך"));
     if (latitude != null && longitude != null) {
       if ((latitude === 0 && longitude === 0) || !isIsraelCoord(latitude, longitude)) {
         latitude = null;
