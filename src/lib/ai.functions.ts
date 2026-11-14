@@ -12,7 +12,7 @@ type SourceResult = { available: boolean; count: number; records?: unknown[]; er
 
 const MASTER_SHEET_ID = "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw";
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbx9d834wq3wm3z4XNHu7jIIhamopctR9dlHra6o4-PgYaflAhe3-VcYxNB4_abRkm_yyQ/exec";
+  "https://script.google.com/macros/s/AKfycbx008PcNLu8BfjNIudaTDa74a7rVmlPpImBK9QaLR9ITxLR1ahNQjzmgmY-39275eQXng/exec";
 
 function gasConfig() {
   const token = process.env["API_TOKEN"];
@@ -337,8 +337,8 @@ async function sleepMs(ms: number): Promise<void> {
 }
 
 async function callGemini(instructions: string, messages: Msg[]): Promise<string> {
-  const key = process.env["GEMINI_API_KEY"] || process.env["GOOGLE_API_KEY"];
-  if (!key) throw new Error("GEMINI_API_KEY לא מוגדר");
+  const key = process.env["GEMINI_API_KEYS"] || process.env["GOOGLE_API_KEY"];
+  if (!key) throw new Error("GEMINI_API_KEYS לא מוגדר");
   const model = process.env["GEMINI_MODEL"] || "gemini-2.0-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const contents = messages.map((m) => ({
