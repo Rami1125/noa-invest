@@ -220,7 +220,7 @@ export function asksCraneOrPto(q: string): boolean {
 export async function fetchIturanPtoLive(token: string, truck?: string) {
   const gasUrl =
     (typeof process !== "undefined" && process.env?.["ITURAN_GAS_URL"]) ||
-    "https://script.google.com/macros/s/AKfycbw6EmTxp0buRjEl7JfKihm4xq2NP3kbGr46lEEYP3x3Vy_3eVkaOTVzChVjXJn5vaS8Ug/exec";
+    "https://script.google.com/macros/s/AKfycbx008PcNLu8BfjNIudaTDa74a7rVmlPpImBK9QaLR9ITxLR1ahNQjzmgmY-39275eQXng/exec";
 
   let url = `${gasUrl}?action=getIturanPto&token=${encodeURIComponent(token)}`;
   if (truck) {
