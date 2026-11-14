@@ -12,7 +12,7 @@ type SourceResult = { available: boolean; count: number; records?: unknown[]; er
 
 const MASTER_SHEET_ID = "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw";
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbx008PcNLu8BfjNIudaTDa74a7rVmlPpImBK9QaLR9ITxLR1ahNQjzmgmY-39275eQXng/exec";
+  "https://script.google.com/macros/s/AKfycbx9d834wq3wm3z4XNHu7jIIhamopctR9dlHra6o4-PgYaflAhe3-VcYxNB4_abRkm_yyQ/exec";
 
 function gasConfig() {
   const token = process.env["API_TOKEN"];
@@ -255,7 +255,6 @@ function buildLiveSummary(
   let matchedToNoteCount = 0;
   let unmatchedSessionsCount = 0;
   for (const s of sessions) {
-    // PTO פתוח = חסר סגירה בלבד; missing_open נספר בנפרד ב-unmatchedSessions
     if (s.orphan === "missing_close") openPtoCount++;
     const dur = s.durationMin;
     if (dur != null && Number.isFinite(dur)) {
@@ -314,7 +313,8 @@ async function getServerContext(question: string): Promise<string> {
 
   const liveSummary = buildLiveSummary(fullNotes, fullPto, fullHandwritten);
 
-  return JSON.stringify({
+  // liveSummary = מקור האמת; sources = דגימות קומפקטיות בלבד (לא 163 תעודות מלאות)
+  const payload = {
     fetchedAt: new Date().toISOString(),
     liveSummary,
     sources: {
@@ -329,27 +329,81 @@ async function getServerContext(question: string): Promise<string> {
       handwritten,
       customerSites,
     },
-  });
+  };
+  let json = JSON.stringify(payload);
+  // הגנה מפני payload ענק שגורם ל-HTTP 400
+  if (json.length > 100_000) {
+    json = JSON.stringify({
+      fetchedAt: payload.fetchedAt,
+      liveSummary,
+      sources: {
+        notes: { available: notes.available, count: notes.count, records: (notes.records || []).slice(0, 5) },
+        pto: { available: pto.available, count: pto.count, records: (pto.records || []).slice(0, 5) },
+        handwritten: { available: handwritten.available, count: handwritten.count },
+        ramiInquiries: { available: inquiries.available, count: inquiries.count },
+      },
+      note: "sources קוצצו — השתמשי רק ב-liveSummary לספירות",
+    });
+  }
+  return json;
 }
 
 async function sleepMs(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-async function callGemini(instructions: string, messages: Msg[]): Promise<string> {
-  const key = process.env["GEMINI_API_KEYS"] || process.env["GOOGLE_API_KEY"];
-  if (!key) throw new Error("GEMINI_API_KEYS לא מוגדר");
-  const model = process.env["GEMINI_MODEL"] || "gemini-2.0-flash";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-  const contents = messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
+/** בניית contents תקינה ל-Gemini REST: role רק user|model, parts לא ריק, מתחיל ב-user */
+function buildGeminiContents(messages: Msg[]): { role: "user" | "model"; parts: { text: string }[] }[] {
+  const raw: { role: "user" | "model"; text: string }[] = [];
+  for (const m of messages) {
+    const text = String(m.content || "").trim();
+    if (!text) continue;
+    const role: "user" | "model" = m.role === "assistant" ? "model" : "user";
+    if (raw.length > 0 && raw[raw.length - 1]!.role === role) {
+      raw[raw.length - 1]!.text += "\n\n" + text;
+    } else {
+      raw.push({ role, text });
+    }
+  }
+  if (raw.length > 0 && raw[0]!.role !== "user") {
+    raw.unshift({ role: "user", text: "(הקשר מערכת)" });
+  }
+  if (raw.length === 0) {
+    raw.push({ role: "user", text: "שלום" });
+  }
+  return raw.map((r) => ({
+    role: r.role,
+    parts: [{ text: r.text.slice(0, 120_000) }],
   }));
-  const body = {
-    systemInstruction: { parts: [{ text: instructions }] },
-    contents,
-    generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+}
+
+async function callGemini(instructions: string, messages: Msg[]): Promise<string> {
+  const key =
+    process.env["GEMINI_API_KEY"] ||
+    process.env["GEMINI_API_KEYS"] ||
+    process.env["GOOGLE_API_KEY"];
+  if (!key) throw new Error("GEMINI_API_KEY לא מוגדר");
+  const model = (process.env["GEMINI_MODEL"] || "gemini-2.0-flash").trim();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+
+  const systemPrompt = String(instructions || "").trim() || "את נועה — עוזרת חמ״ל לוגיסטי.";
+  const contents = buildGeminiContents(messages);
+
+  const generationConfig: Record<string, unknown> = {
+    temperature: 0.3,
+    maxOutputTokens: 4096,
   };
+  // thinkingConfig רק ל-gemini-2.5-* — ב-2.0-flash מחזיר HTTP 400
+  if (/^gemini-2\.5/i.test(model) || model.includes("2.5")) {
+    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
+
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt.slice(0, 30_000) }] },
+    contents,
+    generationConfig,
+  };
+
   let lastErr = "";
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -357,10 +411,11 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(60_000),
       });
       if (!res.ok) {
-        lastErr = `Gemini HTTP ${res.status}`;
+        const errText = await res.text();
+        lastErr = `Gemini HTTP ${res.status}: ${errText.slice(0, 400)}`;
         if (res.status === 429 || res.status >= 500) {
           await sleepMs(800 * (attempt + 1));
           continue;
@@ -369,12 +424,18 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
       }
       const data = (await res.json()) as {
         candidates?: { content?: { parts?: { text?: string }[] } }[];
+        error?: { message?: string };
       };
-      const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+      if (data.error?.message) {
+        throw new Error(`Gemini API: ${data.error.message.slice(0, 400)}`);
+      }
+      const text =
+        data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
       if (!text.trim()) throw new Error("תשובת Gemini ריקה");
       return text.trim();
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e);
+      if (/HTTP 400/.test(lastErr)) break;
       if (attempt < 2) await sleepMs(600 * (attempt + 1));
     }
   }
