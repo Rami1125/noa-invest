@@ -243,7 +243,15 @@ function SitesPage() {
     };
   }, [data]);
 
-  // אל תכלול selectedKey ב-deps — רענון iframe בלחיצה "בורח" ומאבד זום/מיקום
+  // מפתח יציב לנתוני מפה — בלי hikmat/polling כדי שלא ירענן iframe ויאבד זום
+  const mapSitesKey = useMemo(
+    () =>
+      filteredList
+        .map((s) => `${s.siteKey}|${s.lat}|${s.lng}|${s.severity}|${s.customer}|${s.address}`)
+        .join("~"),
+    [filteredList],
+  );
+
   const mapHtml = useMemo(() => {
     return generateInteractiveMapHtml(
       filteredList.map((s) => ({
@@ -278,10 +286,12 @@ function SitesPage() {
         short: w.short,
         loadDelayPct: data?.warehouseLoadDelay?.[w.id as "harash_10" | "hatalmid_6"],
       })),
+      // progress חד-פעמי בטעינה — לא מעדכנים בכל poll (מונע reset זום)
       hikmatProgress,
       data?.warehouseLoadDelay as Record<string, number> | undefined,
     );
-  }, [filteredList, cartoKey, pinLayer, data?.warehouses, data?.warehouseLoadDelay, hikmatProgress, mapFitToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapSitesKey, cartoKey, pinLayer, mapFitToken]);
 
   const advice = selectedSite ? buildUnloadAdvice(selectedSite) : null;
 
@@ -394,7 +404,7 @@ function SitesPage() {
               </div>
             ) : (
               <iframe
-                key={`map-${pinLayer}-${mapFitToken}-${mappedCount}`}
+                key={`map-${pinLayer}-${mapFitToken}`}
                 title="מפת אתרים"
                 className="h-full w-full border-0"
                 srcDoc={mapHtml}
