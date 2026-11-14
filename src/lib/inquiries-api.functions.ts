@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
+  "https://script.google.com/macros/s/AKfycbwi9M5HSO9E0sZrrZ8bdKLCf5mBYPaIk-j3ZY_Mram3qkSH8pU4i-bcG2XNeZ42o3c8Og/exec";
 
 export type InquiryRound = {
   round: number;
@@ -10,16 +10,16 @@ export type InquiryRound = {
 };
 
 export type RamiInquiry = {
-  id: string; // מספר תעודה
+  id: string;
   customer: string;
   address: string;
   driver: string;
   date: string;
-  issue: string; // פירוט החריגה
+  issue: string;
   aiAnalysis: string;
   fileId: string;
   driveUrl: string;
-  status: string; // "ממתין למענה ראמי ⏳" | "pending_harel_reply" | ...
+  status: string;
   rounds: InquiryRound[];
   receivedDate?: string;
   errorReason?: string;
@@ -27,10 +27,8 @@ export type RamiInquiry = {
   harelApproval?: string;
 };
 
-export type InquiryKind = "return" | "crane" | "damaged" | "other";
-
 function gasUrl(): string {
-  return process.env["GAS_URL"] || DEFAULT_GAS_URL;
+  return (process.env["GAS_URL"] || "").trim() || DEFAULT_GAS_URL;
 }
 
 function apiToken(): string {
@@ -73,11 +71,14 @@ export const replyRamiInquiryFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const res = await fetch(gasUrl(), {
       method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "submitRamiReply", ...data, token: apiToken() }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "submitRamiReply",
+        token: apiToken(),
+        noteId: data.noteId,
+        text: data.text,
+      }),
       redirect: "follow",
-      signal: AbortSignal.timeout(60_000),
     });
-    await parseGas(res);
-    return { success: true as const };
+    return parseGas(res);
   });

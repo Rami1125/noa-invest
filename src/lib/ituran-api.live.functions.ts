@@ -1,84 +1,29 @@
-/**
- * שירות לקוח לשליפת נתוני PTO ואיתוראן חיים מ-Apps Script
- */
+import { createServerFn } from "@tanstack/react-start";
 
-export type PtoEvent = {
-  plate: string;
-  driver?: string;
-  open: string;
-  close: string;
-  min: number;
-};
+const DEFAULT_GAS_URL =
+  "https://script.google.com/macros/s/AKfycbwi9M5HSO9E0sZrrZ8bdKLCf5mBYPaIk-j3ZY_Mram3qkSH8pU4i-bcG2XNeZ42o3c8Og/exec";
 
-export type IturanPtoResponse = {
-  success: boolean;
-  stops?: any[];
-  pto?: PtoEvent[];
-  plateSummary?: any[];
-  at?: string;
-  error?: string;
-};
+function gasUrl(): string {
+  return (process.env["GAS_URL"] || "").trim() || DEFAULT_GAS_URL;
+}
 
-// כתובת ה-Deployment של ה-Apps Script שלך (GPS מארכיון + hasGpsMatch)
-const GAS_WEB_APP_URL =
-  "https://script.google.com/macros/s/AKfycbx008PcNLu8BfjNIudaTDa74a7rVmlPpImBK9QaLR9ITxLR1ahNQjzmgmY-39275eQXng/exec";
+function apiToken(): string {
+  const t = process.env["API_TOKEN"];
+  if (!t) throw new Error("API_TOKEN לא מוגדר בשרת");
+  return t;
+}
 
-/**
- * שליפת אירועי PTO (פתיחת מנוף) מהשרת לפי מספר משאית או נהג
- */
-export async function fetchIturanPtoLive(token: string, truckOrDriver?: string): Promise<IturanPtoResponse> {
+export const getIturanLiveFn = createServerFn({ method: "GET" }).handler(async () => {
+  const u = new URL(gasUrl());
+  u.searchParams.set("action", "getIturanPto");
+  u.searchParams.set("since", "90");
+  u.searchParams.set("token", apiToken());
+  u.searchParams.set("nocache", "1");
+  const res = await fetch(u.toString(), { redirect: "follow" });
+  const text = await res.text();
   try {
-    let url = `${GAS_WEB_APP_URL}?action=getIturanStops&token=${encodeURIComponent(token)}`;
-    if (truckOrDriver) {
-      url += `&truck=${encodeURIComponent(truckOrDriver)}`;
-    }
-
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-    });
-
-    if (!res.ok) {
-      throw new Error(`שגיאת תקשורת מול השרת: ${res.status}`);
-    }
-
-    const data = await res.json();
-    return data as IturanPtoResponse;
-  } catch (err: any) {
-    console.error("fetchIturanPtoLive error:", err);
-    return {
-      success: false,
-      error: err?.message || String(err),
-      pto: [],
-      stops: [],
-    };
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`תשובה לא תקינה מ-GAS (HTTP ${res.status})`);
   }
-}
-
-/**
- * מעטפת מודיעין לנועה AI לשליפת תשובה מוסדרת על מנוף / PTO
- */
-export async function getNoaCranePtoAnswer(token: string, queryText: string): Promise<string> {
-  const result = await fetchIturanPtoLive(token);
-  if (!result.success || !result.pto || result.pto.length === 0) {
-    return "לא נמצאו במאגר אירועי פתיחת מנוף (PTO) מעודכנים כרגע.";
-  }
-
-  const isChakmatQuery = /חכמת|615|מנוף/i.test(queryText);
-  const relevantEvents = isChakmatQuery
-    ? result.pto.filter((p) => p.plate.includes("615") || /חכמת/i.test(p.driver || ""))
-    : result.pto;
-
-  if (relevantEvents.length === 0) {
-    return "לא נמצאו אירועי מנוף התואמים את החיפוש המבוקש במאגר.";
-  }
-
-  let summary = "📊 **נתונים מתוך אירועי PTO באיתוראן (נמצא במאגר):**\n\n";
-  relevantEvents.slice(0, 5).forEach((ev, idx) => {
-    summary += `${idx + 1}. משאית **${ev.plate}** | פתיחה: *${ev.open}* | סגירה: *${ev.close}* (${Math.round(ev.min)} דק׳)\n`;
-  });
-
-  return summary;
-}
+});
