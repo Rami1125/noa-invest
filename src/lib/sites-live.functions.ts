@@ -1,10 +1,16 @@
 /**
  * חיבור חי ל-GAS: getSites + getNotes + getIturanPto
- * להצלבה על מפת האתרים + חישוב ETA לסבב חכמת.
+ * להצלבה על מפת האתרים + חישוב ETA לסבב חכמת (שרשרת מלאה).
  */
 import { createServerFn } from "@tanstack/react-start";
 import { pairPtoEvents, analyzePto, type PtoRow } from "./smart-dispatch/pto-pairing";
 import type { DeliveryNote } from "./data";
+import {
+  calculateRoundEta,
+  detectTruckType,
+  type EtaStopInput,
+  type RouteEtaSummary,
+} from "./eta";
 
 const DEFAULT_GAS_URL =
   "https://script.google.com/macros/s/AKfycbx9d834wq3wm3z4XNHu7jIIhamopctR9dlHra6o4-PgYaflAhe3-VcYxNB4_abRkm_yyQ/exec";
@@ -101,21 +107,13 @@ export type SitePtoSession = {
 };
 
 export type HikmatEtaBreakdown = {
-  /** דקות שכבר חלפו מאז פתיחת ה-PTO הפתוח */
   elapsedUnloadMin: number;
-  /** יתרת פריקה משוערת בתחנה הפתוחה */
   remainingUnloadMin: number;
-  /** נסיעה חזרה למחסן הקרוב (דק׳) */
   driveBackMin: number;
-  /** באפר תנועה / אי-ודאות (דק׳) */
   bufferMin: number;
-  /** סה״כ דקות עד חזרה למחסן */
   totalMin: number;
-  /** מקור הערכת הפריקה */
   unloadSource: "site_avg" | "site_max_capped" | "session_history" | "default";
-  /** מקור הערכת הנסיעה */
   driveSource: "coords_haversine" | "site_drive_field" | "default";
-  /** פקטור שעה (1.0–1.45) */
   hourFactor: number;
 };
 
@@ -134,10 +132,11 @@ export type HikmatRound = {
   warehouseName: string;
   progressPct: number;
   totalStopsToday: number;
-  /** פירוט חישוב ETA לשקיפות בסדרן */
   eta: HikmatEtaBreakdown;
   matchedSiteKey?: string;
   matchedSiteAddress?: string;
+  /** שרשרת סבב מלאה מ-eta.ts */
+  routeEta?: RouteEtaSummary;
 };
 
 export type SitesLivePayload = {
@@ -243,7 +242,6 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** נסיעה דקות בין שתי נקודות — מהירות עירונית/בינעירונית + פקטור שעה */
 function estimateDriveMin(
   lat1: number,
   lng1: number,
@@ -258,7 +256,6 @@ function estimateDriveMin(
   return Math.max(6, Math.round((km / speedKmh) * 60 * baseFactor * hourFactor));
 }
 
-/** פקטור עומס לפי שעת ישראל (בוקר/צהריים/אחה״צ) */
 function israelHourTrafficFactor(now = new Date()): number {
   const hour = Number(
     new Intl.DateTimeFormat("en-GB", {
@@ -346,10 +343,6 @@ function pickNearestWarehouse(
   return { wh: best, driveMin: bestMin };
 }
 
-/**
- * ETA חזרה למחסן לסבב הבא:
- * יתרת פריקה בתחנה הפתוחה + נסיעה חזרה למחסן הקרוב + באפר תנועה.
- */
 function buildHikmatRound(
   sessions: SitePtoSession[],
   warehouses: GasWarehouse[],
@@ -445,8 +438,6 @@ function buildHikmatRound(
   if (hourFactor >= 1.3) bufferMin = Math.min(15, bufferMin + 2);
 
   const totalMin = remainingUnloadMin + driveBackMin + (open ? bufferMin : 0);
-  const etaBackIso =
-    open || completed.length ? new Date(now.getTime() + totalMin * 60_000).toISOString() : null;
 
   const progressPct =
     pool.length === 0 ? 0 : Math.min(100, Math.round((completed.length / Math.max(pool.length, 1)) * 100));
@@ -462,24 +453,89 @@ function buildHikmatRound(
     hourFactor,
   };
 
+  // --- שרשרת סבב מלאה (A→B→C→חזרה) ---
+  const truckLabel = open?.truck || pool[0]?.truck || "חכמת מנוף";
+  const truckType = detectTruckType(truckLabel, open?.driver || pool[0]?.driver || "");
+
+  const chainStops: EtaStopInput[] = [];
+  const ordered = [...pool].sort((a, b) => {
+    const ta = new Date(a.openIso || a.closeIso || 0).getTime();
+    const tb = new Date(b.openIso || b.closeIso || 0).getTime();
+    return ta - tb;
+  });
+
+  for (const s of ordered) {
+    const site = matchSessionToSite(s, sites);
+    const lat = site?.lat;
+    const lng = site?.lng;
+    if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const isOpen = s.orphan === "missing_close" || (!s.closeIso && Boolean(s.openIso));
+    chainStops.push({
+      id: s.id,
+      label: site?.address || s.address || s.id,
+      lat,
+      lng,
+      avgStopMin: site?.avgStopMin ?? s.durationMin ?? 22,
+      activePtoStartIso: isOpen ? s.openIso : null,
+      completedAtIso: s.closeIso && !isOpen ? s.closeIso : null,
+      extraLoadComplexityMin: (site?.over20 || 0) >= 2 ? 4 : 0,
+    });
+  }
+
+  let routeEta: RouteEtaSummary | undefined;
+  let finalRemainingUnload = remainingUnloadMin;
+  let finalDriveBack = driveBackMin;
+  let finalTotal = totalMin;
+  let finalEta = { ...eta };
+
+  if (chainStops.length > 0) {
+    const whPoint = { lat: warehouse.lat, lng: warehouse.lng, isWarehouse: true as const };
+    routeEta = calculateRoundEta({
+      warehouse: whPoint,
+      stops: chainStops,
+      now,
+      truckType,
+      warehouseDelayPct: 0,
+    });
+    if (routeEta.totalRemainingMin > 0) {
+      const inProg = routeEta.stops.find((x) => x.status === "in_progress");
+      if (inProg) finalRemainingUnload = inProg.remainingUnloadMin;
+      finalDriveBack = routeEta.returnDriveMin;
+      finalTotal = routeEta.totalRemainingMin;
+      finalEta = {
+        ...eta,
+        remainingUnloadMin: finalRemainingUnload,
+        driveBackMin: finalDriveBack,
+        totalMin: finalTotal,
+        driveSource: "coords_haversine",
+      };
+    }
+  }
+
+  const finalEtaIso =
+    open || completed.length || routeEta
+      ? new Date(now.getTime() + finalTotal * 60_000).toISOString()
+      : null;
+
   return {
     active: Boolean(open) || completed.length > 0,
-    truck: open?.truck || pool[0]?.truck || "חכמת מנוף",
+    truck: truckLabel,
     completedStops: completed.length,
     openStop: open,
-    remainingUnloadMin,
-    driveBackMin,
+    remainingUnloadMin: finalRemainingUnload,
+    driveBackMin: finalDriveBack,
     bufferMin: open ? bufferMin : 0,
-    totalEtaMin: totalMin,
-    etaBackIso,
-    etaBackHe: etaBackIso ? formatIsraelTime(etaBackIso) : null,
+    totalEtaMin: finalTotal,
+    etaBackIso: finalEtaIso,
+    etaBackHe: finalEtaIso ? formatIsraelTime(finalEtaIso) : null,
     warehouseId,
     warehouseName: warehouse.name || warehouse.short || warehouseId,
     progressPct,
     totalStopsToday: Math.max(pool.length, completed.length + (open ? 1 : 0)),
-    eta,
+    eta: finalEta,
     matchedSiteKey: matchedSite?.siteKey,
     matchedSiteAddress: matchedSite?.address || open?.address,
+    routeEta,
   };
 }
 
