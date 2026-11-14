@@ -1,5 +1,5 @@
 /**
- * מחולל מפת Leaflet — סיכות מאופטמות (cluster + אייקון קומפקטי + tooltip בריחוף)
+ * מחולל מפת Leaflet — סיכות עם שם לקוח + רחוב, לחיצה בלי בריחת זום
  */
 export const SLOW_UNLOAD_MIN = 20;
 
@@ -175,8 +175,6 @@ export function generateInteractiveMapHtml(
 <html lang="he" dir="rtl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
 <style>
 html,body,#map{margin:0;height:100%;width:100%;background:#0b1220;font-family:system-ui,sans-serif}
 .leaflet-container{background:#0b1220;touch-action:manipulation}
@@ -188,15 +186,12 @@ html,body,#map{margin:0;height:100%;width:100%;background:#0b1220;font-family:sy
 .pin.warehouse .pin-inner span{transform:none;font-size:11px}
 .pin.wh-green .pin-inner{background:#047857}.pin.wh-orange .pin-inner{background:#c2410c}.pin.wh-red .pin-inner{background:#b91c1c;animation:pulse 1.6s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.72}}
-.pin-compact{width:22px;height:22px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-.pin-compact.green{background:#059669}.pin-compact.orange{background:#d97706}.pin-compact.red{background:#dc2626}
-.pin-compact.selected{box-shadow:0 0 0 3px #34d399,0 1px 4px rgba(0,0,0,.4);transform:scale(1.15)}
-.marker-cluster-small,.marker-cluster-medium,.marker-cluster-large{background-color:rgba(5,150,105,.25)}
-.marker-cluster-small div,.marker-cluster-medium div,.marker-cluster-large div{background-color:rgba(5,150,105,.85);color:#fff;font-weight:800}
-.marker-cluster-medium{background-color:rgba(217,119,6,.25)}
-.marker-cluster-medium div{background-color:rgba(217,119,6,.9)}
-.marker-cluster-large{background-color:rgba(220,38,38,.25)}
-.marker-cluster-large div{background-color:rgba(220,38,38,.9)}
+.pin-dot{width:18px;height:18px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);margin:0 auto}
+.pin-dot.green{background:#059669}.pin-dot.orange{background:#d97706}.pin-dot.red{background:#dc2626}
+.pin-dot.selected{box-shadow:0 0 0 3px #34d399,0 1px 4px rgba(0,0,0,.45)}
+.pin-label-box{display:flex;flex-direction:column;align-items:center;pointer-events:none;transform:translateY(-2px)}
+.pin-name{margin-top:3px;max-width:110px;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.96);border:1px solid rgba(15,23,42,.12);color:#0f172a;font-size:10px;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 6px rgba(0,0,0,.25);text-align:center}
+.pin-street{max-width:110px;padding:0 4px;margin-top:1px;color:#334155;font-size:9px;font-weight:700;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:rgba(255,255,255,.88);border-radius:4px;text-align:center}
 .leaflet-tooltip.pin-tip{background:rgba(255,255,255,.97);border:1px solid #e2e8f0;border-radius:8px;padding:4px 8px;font-size:11px;font-weight:800;color:#0f172a;box-shadow:0 2px 8px rgba(0,0,0,.2);direction:rtl;text-align:right}
 .leaflet-tooltip.pin-tip .sub{font-size:10px;font-weight:700;color:#64748b}
 .leaflet-marker-icon{cursor:pointer!important}
@@ -230,7 +225,6 @@ html,body,#map{margin:0;height:100%;width:100%;background:#0b1220;font-family:sy
   <div class="meta" id="hp-meta"></div>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"><\/script>
 <script>
 const SITES=${sitesJson};
 const WH_LIST=${whJson};
@@ -242,44 +236,55 @@ let currentLayer=INIT_LAYER||'all';
 const map=L.map('map',{
   zoomControl:false,
   tap:true,
-  preferCanvas:true,
+  preferCanvas:false,
   fadeAnimation:false,
   markerZoomAnimation:false,
-  zoomAnimation:true
+  zoomSnap:0.25
 }).setView([32.15,34.89],11);
 L.control.zoom({position:'bottomright'}).addTo(map);
-L.tileLayer(TILE,{maxZoom:19,attribution:'© CARTO · OSM',updateWhenIdle:true,keepBuffer:1}).addTo(map);
+L.tileLayer(TILE,{maxZoom:19,attribution:'© CARTO · OSM',updateWhenIdle:true}).addTo(map);
+map.createPane('pinsPane');
+map.getPane('pinsPane').style.zIndex=650;
 
-const markersLayer=L.markerClusterGroup({
-  maxClusterRadius:48,
-  spiderfyOnMaxZoom:true,
-  showCoverageOnHover:false,
-  zoomToBoundsOnClick:true,
-  disableClusteringAtZoom:15,
-  chunkedLoading:true,
-  chunkInterval:50,
-  chunkDelay:20,
-  animate:false,
-  removeOutsideVisibleBounds:true
-});
-map.addLayer(markersLayer);
+const markersLayer=L.layerGroup().addTo(map);
 
-const iconCache={};
 function badgeClass(sev){return sev==='red'?'b-red':sev==='orange'?'b-orange':'b-green'}
 function esc(t){return String(t||'').replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'"')}
+function shortName(s){
+  const n=(s.customerName||'').trim();
+  if(n) return n.length>16?n.slice(0,15)+'…':n;
+  const a=(s.streetLabel||s.address||'').trim();
+  return a? (a.length>16?a.slice(0,15)+'…':a) : 'אתר';
+}
+function shortStreet(s){
+  const a=(s.streetLabel||s.address||'').trim();
+  if(!a) return (s.city||'');
+  return a.length>18?a.slice(0,17)+'…':a;
+}
 
-function compactIcon(sev,selected){
-  const key=sev+(selected?'S':'');
-  if(iconCache[key]&&!selected)return iconCache[key];
-  const html='<div class="pin-compact '+sev+(selected?' selected':'')+'"></div>';
-  const icon=L.divIcon({className:'pin-wrap',html:html,iconSize:[22,22],iconAnchor:[11,11],popupAnchor:[0,-12]});
-  if(!selected)iconCache[key]=icon;
-  return icon;
+function labeledIcon(sev,selected,s){
+  const name=esc(shortName(s));
+  const street=esc(shortStreet(s));
+  const city=esc((s.city||'').trim());
+  const showStreet=street && street!==name;
+  const html=
+    '<div class="pin-label-box">'
+    +'<div class="pin-dot '+sev+(selected?' selected':'')+'"></div>'
+    +'<div class="pin-name">'+name+'</div>'
+    +(showStreet?'<div class="pin-street">'+street+(city?' · '+city:'')+'</div>':'')
+    +'</div>';
+  return L.divIcon({
+    className:'pin-wrap',
+    html:html,
+    iconSize:[120,52],
+    iconAnchor:[60,10],
+    popupAnchor:[0,-12]
+  });
 }
 
 function tipHtml(s){
-  const line1=esc(s.streetLabel||s.address||s.customerName||'אתר');
-  const line2=[s.city,s.customerName?(s.customerName+(s.customerNo?' #'+s.customerNo:'')):''].filter(Boolean).map(esc).join(' · ');
+  const line1=esc(s.customerName||s.streetLabel||'אתר')+(s.customerNo?' #'+esc(s.customerNo):'');
+  const line2=[s.address,s.city].filter(Boolean).map(esc).join(' · ');
   return line1+(line2?'<div class="sub">'+line2+'</div>':'');
 }
 
@@ -292,7 +297,7 @@ WH_LIST.forEach(function(wh){
     iconSize:[36,36],iconAnchor:[18,36]
   });
   const m=L.marker([wh.lat,wh.lng],{icon:icon,zIndexOffset:900,interactive:true,keyboard:false});
-  m.bindPopup('<div class="p-title">'+esc(wh.label)+'</div><div class="p-sub">מחסן · עיכוב העמסה '+pct+'%</div>',{maxWidth:220});
+  m.bindPopup('<div class="p-title">'+esc(wh.label)+'</div><div class="p-sub">מחסן · עיכוב העמסה '+pct+'%</div>',{maxWidth:220,autoPan:false});
   m.on('click',function(e){
     if(e.originalEvent){try{L.DomEvent.stop(e.originalEvent)}catch(err){}}
     try{parent.postMessage({type:'warehouse-click',id:wh.id},'*')}catch(err){}
@@ -307,64 +312,66 @@ function visible(s){
 }
 
 function openSite(s,e){
-  if(e&&e.originalEvent){try{L.DomEvent.stop(e.originalEvent)}catch(err){}}
-  try{parent.postMessage({type:'site-pin-click',key:s.key,site:{key:s.key,customerName:s.customerName,customerNo:s.customerNo,address:s.address,city:s.city}},'*')}catch(err){}
+  if(e){
+    try{L.DomEvent.stop(e)}catch(err){}
+    if(e.originalEvent){try{L.DomEvent.stop(e.originalEvent)}catch(err2){}}
+  }
+  try{
+    parent.postMessage({
+      type:'site-pin-click',
+      key:s.key,
+      site:{key:s.key,customerName:s.customerName,customerNo:s.customerNo,address:s.address,city:s.city}
+    },'*');
+  }catch(err){}
 }
 
 function buildMarker(s){
   const m=L.marker([s.lat,s.lon],{
-    icon:compactIcon(s.severity,!!s.isSelected),
-    title:s.tip||s.streetLabel||s.customerName||'',
+    icon:labeledIcon(s.severity,!!s.isSelected,s),
+    title:(s.customerName||'')+(s.customerNo?' #'+s.customerNo:'')+' · '+(s.address||'')+' '+(s.city||''),
     keyboard:false,
-    riseOnHover:false
+    riseOnHover:true,
+    pane:'pinsPane'
   });
   const popup='<div class="p-badge '+badgeClass(s.severity)+'">'+(s.levelHe||'')+'</div>'
     +'<div class="p-title">'+(esc(s.customerName)||'לקוח')+(s.customerNo?' <b>#'+esc(s.customerNo)+'</b>':'')+'</div>'
     +'<div class="p-addr">'+(esc(s.address)||'')+'</div>'
     +'<div class="p-sub">'+(esc(s.city)||'')+'</div>'
     +'<div class="p-eta">נסיעה ~'+s.driveMin+' + פריקה ~'+s.expectedMin+' = <b>'+s.totalMin+' דק\u2019</b></div>';
-  m.bindPopup(popup,{maxWidth:260,autoPan:true,closeButton:true});
-  m.bindTooltip(tipHtml(s),{direction:'top',offset:[0,-10],opacity:1,className:'pin-tip',sticky:false});
+  m.bindPopup(popup,{maxWidth:260,autoPan:false,closeButton:true,closeOnClick:false});
+  m.bindTooltip(tipHtml(s),{direction:'top',offset:[0,-8],opacity:1,className:'pin-tip',sticky:false});
   m.on('click',function(e){openSite(s,e)});
   return m;
 }
 
-function renderMarkers(){
+function renderMarkers(doFit){
   markersLayer.clearLayers();
   const bounds=[];
   WH_LIST.forEach(function(wh){bounds.push([wh.lat,wh.lng])});
-  const batch=[];
   for(let i=0;i<SITES.length;i++){
     const s=SITES[i];
     if(!visible(s)||s.lat==null||s.lon==null)continue;
     if(!isFinite(s.lat)||!isFinite(s.lon)||(s.lat===0&&s.lon===0))continue;
-    batch.push(buildMarker(s));
+    markersLayer.addLayer(buildMarker(s));
     bounds.push([s.lat,s.lon]);
   }
-  markersLayer.addLayers(batch);
+  if(doFit && bounds.length>1){
+    try{map.fitBounds(bounds,{padding:[36,36],maxZoom:13})}catch(e){}
+  }
   return bounds;
 }
 
-function fitAll(){
-  const b=renderMarkers();
-  if(b.length>1){try{map.fitBounds(b,{padding:[40,40],maxZoom:13})}catch(e){}}
-}
-
-renderMarkers();
-(function initialFit(){
-  const pts=SITES.filter(function(s){return visible(s)&&s.lat!=null&&s.lon!=null&&isFinite(s.lat)&&isFinite(s.lon)});
-  const b=WH_LIST.map(function(w){return [w.lat,w.lng]}).concat(pts.map(function(s){return [s.lat,s.lon]}));
-  if(b.length>1){try{map.fitBounds(b,{padding:[40,40],maxZoom:13})}catch(e){}}
-})();
+renderMarkers(true);
+map.doubleClickZoom.disable();
 
 document.querySelectorAll('.layer-btn[data-layer]').forEach(function(btn){
   btn.addEventListener('click',function(){
     currentLayer=btn.getAttribute('data-layer');
     document.querySelectorAll('.layer-btn[data-layer]').forEach(function(b){b.classList.toggle('active',b===btn)});
-    renderMarkers();
+    renderMarkers(false);
   });
 });
-document.getElementById('btn-fit').addEventListener('click',fitAll);
+document.getElementById('btn-fit').addEventListener('click',function(){renderMarkers(true)});
 if(INIT_LAYER&&INIT_LAYER!=='all'){
   const btn=document.querySelector('.layer-btn[data-layer="'+INIT_LAYER+'"]');
   if(btn)btn.click();
