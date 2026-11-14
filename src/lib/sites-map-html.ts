@@ -1,5 +1,5 @@
 /**
- * מחולל מפת Leaflet — סיכות עם שם לקוח + רחוב, לחיצה בלי בריחת זום
+ * מחולל מפת Leaflet — סיכות טיפה + שם לקוח + רחוב, לחיצה בלי בריחת זום
  */
 export const SLOW_UNLOAD_MIN = 20;
 
@@ -179,19 +179,34 @@ export function generateInteractiveMapHtml(
 html,body,#map{margin:0;height:100%;width:100%;background:#0b1220;font-family:system-ui,sans-serif}
 .leaflet-container{background:#0b1220;touch-action:manipulation}
 .pin-wrap,.leaflet-div-icon{background:transparent!important;border:0!important}
-.pin{width:44px;height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer}
-.pin-inner{width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
-.pin-inner span{transform:rotate(45deg);font-size:10px;font-weight:800;color:#fff}
-.pin.warehouse .pin-inner{background:#1d4ed8;border-radius:8px;transform:none;width:34px;height:34px}
-.pin.warehouse .pin-inner span{transform:none;font-size:11px}
-.pin.wh-green .pin-inner{background:#047857}.pin.wh-orange .pin-inner{background:#c2410c}.pin.wh-red .pin-inner{background:#b91c1c;animation:pulse 1.6s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.72}}
-.pin-dot{width:18px;height:18px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);margin:0 auto}
-.pin-dot.green{background:#059669}.pin-dot.orange{background:#d97706}.pin-dot.red{background:#dc2626}
-.pin-dot.selected{box-shadow:0 0 0 3px #34d399,0 1px 4px rgba(0,0,0,.45)}
-.pin-label-box{display:flex;flex-direction:column;align-items:center;pointer-events:none;transform:translateY(-2px)}
-.pin-name{margin-top:3px;max-width:110px;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.96);border:1px solid rgba(15,23,42,.12);color:#0f172a;font-size:10px;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 6px rgba(0,0,0,.25);text-align:center}
-.pin-street{max-width:110px;padding:0 4px;margin-top:1px;color:#334155;font-size:9px;font-weight:700;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:rgba(255,255,255,.88);border-radius:4px;text-align:center}
+.pin{
+  width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+  border:2.5px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.4);
+  display:flex;align-items:center;justify-content:center;margin:0 auto;
+}
+.pin-inner{transform:rotate(45deg);color:#fff;font-size:11px;font-weight:900;line-height:1}
+.pin.green{background:linear-gradient(145deg,#34d399,#059669)}
+.pin.orange{background:linear-gradient(145deg,#fb923c,#ea580c)}
+.pin.red{background:linear-gradient(145deg,#f87171,#dc2626)}
+.pin.selected{box-shadow:0 0 0 3px #a78bfa,0 3px 10px rgba(0,0,0,.45);transform:rotate(-45deg) scale(1.15)}
+.pin.warehouse{background:linear-gradient(145deg,#38bdf8,#0369a1)!important;width:34px;height:34px}
+.pin.wh-green{background:linear-gradient(145deg,#34d399,#047857)!important}
+.pin.wh-orange{background:linear-gradient(145deg,#fb923c,#c2410c)!important}
+.pin.wh-red{background:linear-gradient(145deg,#f87171,#b91c1c)!important;animation:pulse 1.6s ease-in-out infinite}
+.pin-stack{display:flex;flex-direction:column;align-items:center;pointer-events:none}
+.pin-name{
+  margin-top:4px;max-width:120px;padding:2px 7px;border-radius:7px;
+  background:rgba(255,255,255,.97);border:1px solid rgba(15,23,42,.14);
+  color:#0f172a;font-size:11px;font-weight:800;line-height:1.2;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  box-shadow:0 2px 8px rgba(0,0,0,.28);text-align:center;direction:rtl;
+}
+.pin-street{
+  max-width:120px;margin-top:2px;padding:1px 5px;border-radius:5px;
+  background:rgba(15,23,42,.82);color:#e2e8f0;font-size:9px;font-weight:700;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;direction:rtl;
+}
 .leaflet-tooltip.pin-tip{background:rgba(255,255,255,.97);border:1px solid #e2e8f0;border-radius:8px;padding:4px 8px;font-size:11px;font-weight:800;color:#0f172a;box-shadow:0 2px 8px rgba(0,0,0,.2);direction:rtl;text-align:right}
 .leaflet-tooltip.pin-tip .sub{font-size:10px;font-weight:700;color:#64748b}
 .leaflet-marker-icon{cursor:pointer!important}
@@ -216,8 +231,8 @@ html,body,#map{margin:0;height:100%;width:100%;background:#0b1220;font-family:sy
 <div class="ctrl">
   <button class="layer-btn active" data-layer="all" type="button">הכל</button>
   <button class="layer-btn" data-layer="slow" type="button">מעכבים</button>
-  <button class="layer-btn" data-layer="normal" type="button">תקינים</button>
-  <button class="fit-btn" id="btn-fit" type="button">התאם</button>
+  <button class="layer-btn" data-layer="normal" type="button">שגרתיים</button>
+  <button class="fit-btn" id="btn-fit" type="button">התאם מפה לסיכות</button>
 </div>
 <div class="progress" id="hikmat-progress" style="display:none">
   <div class="title"><span>סבב חכמת</span><span id="hp-pct">0%</span></div>
@@ -267,18 +282,19 @@ function labeledIcon(sev,selected,s){
   const street=esc(shortStreet(s));
   const city=esc((s.city||'').trim());
   const showStreet=street && street!==name;
+  const mark=sev==='red'?'!':'';
   const html=
-    '<div class="pin-label-box">'
-    +'<div class="pin-dot '+sev+(selected?' selected':'')+'"></div>'
+    '<div class="pin-stack">'
+    +'<div class="pin '+sev+(selected?' selected':'')+'"><span class="pin-inner">'+mark+'</span></div>'
     +'<div class="pin-name">'+name+'</div>'
     +(showStreet?'<div class="pin-street">'+street+(city?' · '+city:'')+'</div>':'')
     +'</div>';
   return L.divIcon({
     className:'pin-wrap',
     html:html,
-    iconSize:[120,52],
-    iconAnchor:[60,10],
-    popupAnchor:[0,-12]
+    iconSize:[124,64],
+    iconAnchor:[62,30],
+    popupAnchor:[0,-28]
   });
 }
 
@@ -293,8 +309,8 @@ WH_LIST.forEach(function(wh){
   const pct=wh.loadPct||0;
   const icon=L.divIcon({
     className:'pin-wrap',
-    html:'<div class="pin warehouse '+whClass(pct)+'" style="width:36px;height:36px"><div class="pin-inner"><span>'+esc(wh.short||'מ')+'</span></div></div>',
-    iconSize:[36,36],iconAnchor:[18,36]
+    html:'<div class="pin-stack"><div class="pin warehouse '+whClass(pct)+'"><span class="pin-inner">'+esc(wh.short||'מ')+'</span></div><div class="pin-name">'+esc(wh.short||'מחסן')+'</div></div>',
+    iconSize:[80,56],iconAnchor:[40,30]
   });
   const m=L.marker([wh.lat,wh.lng],{icon:icon,zIndexOffset:900,interactive:true,keyboard:false});
   m.bindPopup('<div class="p-title">'+esc(wh.label)+'</div><div class="p-sub">מחסן · עיכוב העמסה '+pct+'%</div>',{maxWidth:220,autoPan:false});
