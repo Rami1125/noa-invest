@@ -374,7 +374,6 @@ function buildGeminiContents(messages: Msg[]): { role: "user" | "model"; parts: 
   }));
 }
 
-/** פירוק מפתחות מ-env: תומך במפתח בודד או ברשימה (פסיק / שורה חדשה / ;) */
 function resolveGeminiApiKeys(): string[] {
   const raw = [
     process.env["GEMINI_API_KEY"],
@@ -405,7 +404,6 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
       "GEMINI_API_KEY לא מוגדר או לא תקין (צפוי מפתח שמתחיל ב-AIza…; ברשימה — הפרד בפסיק או שורה)",
     );
   }
-  // gemini-2.0-flash הוצא משירות — ברירת מחדל gemini-3.8-flash
   const model = (process.env["GEMINI_MODEL"] || "gemini-3.8-flash").trim();
 
   const systemPrompt = String(instructions || "").trim() || "את נועה — עוזרת חמ״ל לוגיסטי.";
@@ -415,7 +413,6 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
     temperature: 0.3,
     maxOutputTokens: 4096,
   };
-  // thinkingConfig רק ל-gemini-2.5-* (במודלים אחרים עלול להחזיר 400)
   if (/^gemini-2\.5/i.test(model) || model.includes("2.5")) {
     generationConfig.thinkingConfig = { thinkingBudget: 0 };
   }
@@ -427,6 +424,7 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
   };
 
   let lastErr = "";
+  let hitQuota = false;
   for (let ki = 0; ki < keys.length; ki++) {
     const key = keys[ki]!;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
@@ -440,12 +438,17 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
         });
         if (!res.ok) {
           const errText = await res.text();
-          lastErr = `Gemini HTTP ${res.status}: ${errText.slice(0, 400)}`;
+          lastErr = `Gemini HTTP ${res.status}: ${errText.slice(0, 300)}`;
           const invalidKey =
             res.status === 400 &&
             (/API_KEY_INVALID/i.test(errText) || /API key not valid/i.test(errText));
           if (invalidKey) break;
-          if (res.status === 429 || res.status >= 500) {
+          if (res.status === 429) {
+            hitQuota = true;
+            await sleepMs(400 + attempt * 400);
+            break; // מפתח הבא
+          }
+          if (res.status >= 500) {
             await sleepMs(800 * (attempt + 1));
             continue;
           }
@@ -461,6 +464,11 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
             lastErr = `Gemini API: ${msg.slice(0, 200)}`;
             break;
           }
+          if (/quota|rate.?limit|429/i.test(msg)) {
+            hitQuota = true;
+            lastErr = `Gemini: ${msg.slice(0, 200)}`;
+            break;
+          }
           throw new Error(`Gemini API: ${msg.slice(0, 400)}`);
         }
         const text =
@@ -470,10 +478,20 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
       } catch (e) {
         lastErr = e instanceof Error ? e.message : String(e);
         if (/API_KEY_INVALID|API key not valid/i.test(lastErr)) break;
+        if (/HTTP 429|quota|rate.?limit/i.test(lastErr)) {
+          hitQuota = true;
+          break;
+        }
         if (/HTTP 400|HTTP 404/.test(lastErr)) throw new Error(lastErr);
         if (attempt < 1) await sleepMs(600 * (attempt + 1));
       }
     }
+  }
+  if (hitQuota) {
+    throw new Error(
+      `חריגת מכסת Gemini (free tier, ~20 בקשות/דקה). נוסו ${keys.length} מפתחות. ` +
+        `המתן כדקה ונסה שוב, או הגדר מפתח עם Billing / העלה מכסה ב-Google AI Studio.`,
+    );
   }
   throw new Error(
     lastErr || `Gemini נכשל — נוסו ${keys.length} מפתחות (כולם נדחו או נכשלו)`,
