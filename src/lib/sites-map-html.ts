@@ -1,5 +1,5 @@
 /**
- * מחולל מפת Leaflet — סיכות אתרים + מחסנים + תוויות רחוב/עיר + מגע יציב
+ * מחולל מפת Leaflet — סיכות מאופטמות (cluster + אייקון קומפקטי + tooltip בריחוף)
  */
 export const SLOW_UNLOAD_MIN = 20;
 
@@ -175,25 +175,30 @@ export function generateInteractiveMapHtml(
 <html lang="he" dir="rtl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
 <style>
 html,body,#map{margin:0;height:100%;width:100%;background:#0b1220;font-family:system-ui,sans-serif}
 .leaflet-container{background:#0b1220;touch-action:manipulation}
 .pin-wrap,.leaflet-div-icon{background:transparent!important;border:0!important}
-.pin-hit{width:48px;height:48px;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-.pin{width:44px;height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation}
+.pin{width:44px;height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .pin-inner{width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
 .pin-inner span{transform:rotate(45deg);font-size:10px;font-weight:800;color:#fff}
-.pin.green .pin-inner{background:#059669}.pin.orange .pin-inner{background:#d97706}.pin.red .pin-inner{background:#dc2626}
-.pin.selected .pin-inner{box-shadow:0 0 0 3px #34d399,0 2px 10px rgba(0,0,0,.5);width:32px;height:32px}
 .pin.warehouse .pin-inner{background:#1d4ed8;border-radius:8px;transform:none;width:34px;height:34px}
 .pin.warehouse .pin-inner span{transform:none;font-size:11px}
 .pin.wh-green .pin-inner{background:#047857}.pin.wh-orange .pin-inner{background:#c2410c}.pin.wh-red .pin-inner{background:#b91c1c;animation:pulse 1.6s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.72}}
-.lbl{background:rgba(255,255,255,.96);color:#0f172a;border:1px solid rgba(15,23,42,.12);border-radius:8px;padding:3px 7px;font-size:11px;font-weight:800;line-height:1.25;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.28);pointer-events:none;margin-top:2px;max-width:160px;overflow:hidden;text-overflow:ellipsis;text-align:center}
-.lbl .loc{display:block;font-size:9px;font-weight:700;color:#475569;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lbl .cust{display:block;font-size:10px;font-weight:800;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lbl b{color:#047857;font-weight:900}
-.lbl.selected-lbl{background:#ecfdf5;border-color:#10b981;box-shadow:0 0 0 2px rgba(16,185,129,.35)}
+.pin-compact{width:22px;height:22px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.pin-compact.green{background:#059669}.pin-compact.orange{background:#d97706}.pin-compact.red{background:#dc2626}
+.pin-compact.selected{box-shadow:0 0 0 3px #34d399,0 1px 4px rgba(0,0,0,.4);transform:scale(1.15)}
+.marker-cluster-small,.marker-cluster-medium,.marker-cluster-large{background-color:rgba(5,150,105,.25)}
+.marker-cluster-small div,.marker-cluster-medium div,.marker-cluster-large div{background-color:rgba(5,150,105,.85);color:#fff;font-weight:800}
+.marker-cluster-medium{background-color:rgba(217,119,6,.25)}
+.marker-cluster-medium div{background-color:rgba(217,119,6,.9)}
+.marker-cluster-large{background-color:rgba(220,38,38,.25)}
+.marker-cluster-large div{background-color:rgba(220,38,38,.9)}
+.leaflet-tooltip.pin-tip{background:rgba(255,255,255,.97);border:1px solid #e2e8f0;border-radius:8px;padding:4px 8px;font-size:11px;font-weight:800;color:#0f172a;box-shadow:0 2px 8px rgba(0,0,0,.2);direction:rtl;text-align:right}
+.leaflet-tooltip.pin-tip .sub{font-size:10px;font-weight:700;color:#64748b}
 .leaflet-marker-icon{cursor:pointer!important}
 .ctrl{position:absolute;z-index:1000;top:10px;right:10px;display:flex;gap:6px;flex-wrap:wrap}
 .layer-btn,.fit-btn{border:0;border-radius:999px;padding:8px 12px;font-size:11px;font-weight:800;background:rgba(15,23,42,.92);color:#e2e8f0;cursor:pointer;min-height:36px;touch-action:manipulation;box-shadow:0 2px 8px rgba(0,0,0,.35)}
@@ -225,6 +230,7 @@ html,body,#map{margin:0;height:100%;width:100%;background:#0b1220;font-family:sy
   <div class="meta" id="hp-meta"></div>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"><\/script>
 <script>
 const SITES=${sitesJson};
 const WH_LIST=${whJson};
@@ -232,71 +238,125 @@ const PROGRESS=${progressJson};
 const INIT_LAYER=${JSON.stringify(pinLayer)};
 const TILE=${JSON.stringify(tileUrl)};
 let currentLayer=INIT_LAYER||'all';
-const map=L.map('map',{zoomControl:false,tap:true}).setView([32.15,34.89],11);
+
+const map=L.map('map',{
+  zoomControl:false,
+  tap:true,
+  preferCanvas:true,
+  fadeAnimation:false,
+  markerZoomAnimation:false,
+  zoomAnimation:true
+}).setView([32.15,34.89],11);
 L.control.zoom({position:'bottomright'}).addTo(map);
-L.tileLayer(TILE,{maxZoom:19,attribution:'© CARTO · OSM'}).addTo(map);
-map.createPane('pinsPane');map.getPane('pinsPane').style.zIndex=650;
-const markers=[];
+L.tileLayer(TILE,{maxZoom:19,attribution:'© CARTO · OSM',updateWhenIdle:true,keepBuffer:1}).addTo(map);
+
+const markersLayer=L.markerClusterGroup({
+  maxClusterRadius:48,
+  spiderfyOnMaxZoom:true,
+  showCoverageOnHover:false,
+  zoomToBoundsOnClick:true,
+  disableClusteringAtZoom:15,
+  chunkedLoading:true,
+  chunkInterval:50,
+  chunkDelay:20,
+  animate:false,
+  removeOutsideVisibleBounds:true
+});
+map.addLayer(markersLayer);
+
+const iconCache={};
 function badgeClass(sev){return sev==='red'?'b-red':sev==='orange'?'b-orange':'b-green'}
 function esc(t){return String(t||'').replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'"')}
-function makeIcon(sev,selected,s){
-  const cls='pin '+sev+(selected?' selected':'');
-  const cust=s.customerName||'';
-  const no=s.customerNo?' #'+s.customerNo:'';
-  const street=s.streetLabel||s.address||'';
-  const city=s.city||'';
-  const lblCls='lbl'+(selected?' selected-lbl':'');
-  const labelHtml='<div class="'+lblCls+'">'+
-    '<span class="cust">'+esc(street)+'</span>'+
-    (city?'<span class="loc">'+esc(city)+'</span>':'')+
-    ((cust||no)?'<span class="loc">'+esc(cust+no)+'</span>':'')+
-    '</div>';
-  const html='<div class="pin-hit"><div class="'+cls+'"><div class="pin-inner"><span></span></div></div></div>'+labelHtml;
-  return L.divIcon({className:'pin-wrap',html:html,iconSize:[48,72],iconAnchor:[24,44],popupAnchor:[0,-40]});
+
+function compactIcon(sev,selected){
+  const key=sev+(selected?'S':'');
+  if(iconCache[key]&&!selected)return iconCache[key];
+  const html='<div class="pin-compact '+sev+(selected?' selected':'')+'"></div>';
+  const icon=L.divIcon({className:'pin-wrap',html:html,iconSize:[22,22],iconAnchor:[11,11],popupAnchor:[0,-12]});
+  if(!selected)iconCache[key]=icon;
+  return icon;
 }
+
+function tipHtml(s){
+  const line1=esc(s.streetLabel||s.address||s.customerName||'אתר');
+  const line2=[s.city,s.customerName?(s.customerName+(s.customerNo?' #'+s.customerNo:'')):''].filter(Boolean).map(esc).join(' · ');
+  return line1+(line2?'<div class="sub">'+line2+'</div>':'');
+}
+
 function whClass(pct){if(pct>60)return 'wh-red';if(pct>25)return 'wh-orange';return 'wh-green'}
 WH_LIST.forEach(function(wh){
   const pct=wh.loadPct||0;
-  const icon=L.divIcon({className:'pin-wrap',html:'<div class="pin-hit"><div class="pin warehouse '+whClass(pct)+'"><div class="pin-inner"><span>'+esc(wh.short||'מ')+'</span></div></div></div><div class="lbl"><b>'+pct+'%</b> עיכוב</div>',iconSize:[48,72],iconAnchor:[24,44]});
-  const m=L.marker([wh.lat,wh.lng],{icon:icon,pane:'pinsPane',zIndexOffset:900,keyboard:true,interactive:true});
-  m.bindPopup('<div class="p-title">'+esc(wh.label)+'</div><div class="p-sub">מחסן מוצא · מדד עיכוב העמסה '+pct+'%</div>',{closeButton:true,autoPan:true});
-  m.on('click',function(e){if(e.originalEvent){try{L.DomEvent.stop(e.originalEvent)}catch(err){}}try{parent.postMessage({type:'warehouse-click',id:wh.id},'*')}catch(err){}});
+  const icon=L.divIcon({
+    className:'pin-wrap',
+    html:'<div class="pin warehouse '+whClass(pct)+'" style="width:36px;height:36px"><div class="pin-inner"><span>'+esc(wh.short||'מ')+'</span></div></div>',
+    iconSize:[36,36],iconAnchor:[18,36]
+  });
+  const m=L.marker([wh.lat,wh.lng],{icon:icon,zIndexOffset:900,interactive:true,keyboard:false});
+  m.bindPopup('<div class="p-title">'+esc(wh.label)+'</div><div class="p-sub">מחסן · עיכוב העמסה '+pct+'%</div>',{maxWidth:220});
+  m.on('click',function(e){
+    if(e.originalEvent){try{L.DomEvent.stop(e.originalEvent)}catch(err){}}
+    try{parent.postMessage({type:'warehouse-click',id:wh.id},'*')}catch(err){}
+  });
   m.addTo(map);
-  if(m.getElement){const el=m.getElement();if(el){L.DomEvent.disableClickPropagation(el);L.DomEvent.disableScrollPropagation(el)}}
 });
-function visible(s){if(currentLayer==='slow')return s.slow;if(currentLayer==='normal')return !s.slow;return true}
+
+function visible(s){
+  if(currentLayer==='slow')return s.slow;
+  if(currentLayer==='normal')return !s.slow;
+  return true;
+}
+
 function openSite(s,e){
-  if(e&&e.originalEvent){try{L.DomEvent.stop(e.originalEvent)}catch(err){if(e.originalEvent.stopPropagation)e.originalEvent.stopPropagation()}}
+  if(e&&e.originalEvent){try{L.DomEvent.stop(e.originalEvent)}catch(err){}}
   try{parent.postMessage({type:'site-pin-click',key:s.key,site:{key:s.key,customerName:s.customerName,customerNo:s.customerNo,address:s.address,city:s.city}},'*')}catch(err){}
 }
-function renderMarkers(){
-  markers.forEach(function(m){map.removeLayer(m)});markers.length=0;
-  const bounds=[];WH_LIST.forEach(function(wh){bounds.push([wh.lat,wh.lng])});
-  SITES.forEach(function(s){
-    if(!visible(s)||s.lat==null||s.lon==null)return;
-    if(!isFinite(s.lat)||!isFinite(s.lon)||(s.lat===0&&s.lon===0))return;
-    const m=L.marker([s.lat,s.lon],{icon:makeIcon(s.severity,s.isSelected,s),pane:'pinsPane',title:s.tip||s.streetLabel||s.customerName,keyboard:true,riseOnHover:true,interactive:true});
-    const popup='<div class="p-badge '+badgeClass(s.severity)+'">'+(s.levelHe||'')+'</div>'
-      +'<div class="p-title">'+(esc(s.customerName)||'לקוח')+(s.customerNo?' <b>#'+esc(s.customerNo)+'</b>':'')+'</div>'
-      +'<div class="p-addr">'+(esc(s.address)||'')+'</div>'
-      +'<div class="p-sub">'+(esc(s.city)||'')+'</div>'
-      +'<div class="p-eta">נסיעה ~'+s.driveMin+' + פריקה ~'+s.expectedMin+' = <b>'+s.totalMin+' דק\u2019</b></div>';
-    m.bindPopup(popup,{closeButton:true,autoPan:true,maxWidth:260});
-    m.on('click',function(e){openSite(s,e)});
-    m.on('add',function(){
-      const el=m.getElement&&m.getElement();
-      if(!el)return;
-      el.style.cursor='pointer';
-      el.style.touchAction='manipulation';
-      L.DomEvent.disableClickPropagation(el);
-      L.DomEvent.disableScrollPropagation(el);
-    });
-    m.addTo(map);markers.push(m);bounds.push([s.lat,s.lon]);
+
+function buildMarker(s){
+  const m=L.marker([s.lat,s.lon],{
+    icon:compactIcon(s.severity,!!s.isSelected),
+    title:s.tip||s.streetLabel||s.customerName||'',
+    keyboard:false,
+    riseOnHover:false
   });
+  const popup='<div class="p-badge '+badgeClass(s.severity)+'">'+(s.levelHe||'')+'</div>'
+    +'<div class="p-title">'+(esc(s.customerName)||'לקוח')+(s.customerNo?' <b>#'+esc(s.customerNo)+'</b>':'')+'</div>'
+    +'<div class="p-addr">'+(esc(s.address)||'')+'</div>'
+    +'<div class="p-sub">'+(esc(s.city)||'')+'</div>'
+    +'<div class="p-eta">נסיעה ~'+s.driveMin+' + פריקה ~'+s.expectedMin+' = <b>'+s.totalMin+' דק\u2019</b></div>';
+  m.bindPopup(popup,{maxWidth:260,autoPan:true,closeButton:true});
+  m.bindTooltip(tipHtml(s),{direction:'top',offset:[0,-10],opacity:1,className:'pin-tip',sticky:false});
+  m.on('click',function(e){openSite(s,e)});
+  return m;
+}
+
+function renderMarkers(){
+  markersLayer.clearLayers();
+  const bounds=[];
+  WH_LIST.forEach(function(wh){bounds.push([wh.lat,wh.lng])});
+  const batch=[];
+  for(let i=0;i<SITES.length;i++){
+    const s=SITES[i];
+    if(!visible(s)||s.lat==null||s.lon==null)continue;
+    if(!isFinite(s.lat)||!isFinite(s.lon)||(s.lat===0&&s.lon===0))continue;
+    batch.push(buildMarker(s));
+    bounds.push([s.lat,s.lon]);
+  }
+  markersLayer.addLayers(batch);
   return bounds;
 }
-function fitAll(){const b=renderMarkers();if(b.length>1){try{map.fitBounds(b,{padding:[40,40],maxZoom:13})}catch(e){}}}
-renderMarkers();fitAll();
+
+function fitAll(){
+  const b=renderMarkers();
+  if(b.length>1){try{map.fitBounds(b,{padding:[40,40],maxZoom:13})}catch(e){}}
+}
+
+renderMarkers();
+(function initialFit(){
+  const pts=SITES.filter(function(s){return visible(s)&&s.lat!=null&&s.lon!=null&&isFinite(s.lat)&&isFinite(s.lon)});
+  const b=WH_LIST.map(function(w){return [w.lat,w.lng]}).concat(pts.map(function(s){return [s.lat,s.lon]}));
+  if(b.length>1){try{map.fitBounds(b,{padding:[40,40],maxZoom:13})}catch(e){}}
+})();
+
 document.querySelectorAll('.layer-btn[data-layer]').forEach(function(btn){
   btn.addEventListener('click',function(){
     currentLayer=btn.getAttribute('data-layer');
@@ -305,7 +365,11 @@ document.querySelectorAll('.layer-btn[data-layer]').forEach(function(btn){
   });
 });
 document.getElementById('btn-fit').addEventListener('click',fitAll);
-if(INIT_LAYER&&INIT_LAYER!=='all'){const btn=document.querySelector('.layer-btn[data-layer="'+INIT_LAYER+'"]');if(btn)btn.click()}
+if(INIT_LAYER&&INIT_LAYER!=='all'){
+  const btn=document.querySelector('.layer-btn[data-layer="'+INIT_LAYER+'"]');
+  if(btn)btn.click();
+}
+
 (function renderProgress(){
   const box=document.getElementById('hikmat-progress');
   if(!PROGRESS||(!PROGRESS.active&&!(PROGRESS.totalStopsToday>0))){box.style.display='none';return}
