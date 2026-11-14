@@ -224,13 +224,22 @@ function SitesPage() {
   const hikmatProgress = useMemo(() => {
     if (!data?.hikmatRound) return null;
     const h = data.hikmatRound;
+    const parts: string[] = [];
+    if (h.openStop) {
+      parts.push(h.matchedSiteAddress || h.openStop.address || "תחנה פתוחה");
+      if ((h.remainingUnloadMin ?? 0) > 0) parts.push(`יתרת פריקה ~${h.remainingUnloadMin}ד׳`);
+    }
+    if ((h.driveBackMin ?? 0) > 0) {
+      parts.push(`נסיעה חזרה ~${h.driveBackMin}ד׳ → ${h.warehouseName || h.warehouseId}`);
+    }
+    if ((h.bufferMin ?? 0) > 0) parts.push(`באפר ${h.bufferMin}ד׳`);
     return {
       active: h.active || h.totalStopsToday > 0,
       completedStops: h.completedStops,
       totalStopsToday: h.totalStopsToday,
       progressPct: h.progressPct,
-      openLabel: h.openStop?.address || h.openStop?.driver || "",
-      etaBackHe: h.etaBackIso ? formatIsraelTime(h.etaBackIso) : "",
+      openLabel: parts.join(" · ") || h.openStop?.driver || "",
+      etaBackHe: h.etaBackHe || (h.etaBackIso ? formatIsraelTime(h.etaBackIso) : ""),
     };
   }, [data]);
 
