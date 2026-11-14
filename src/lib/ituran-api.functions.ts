@@ -10,20 +10,10 @@ import { createServerFn } from "@tanstack/react-start";
 import type { GpsStop, IturanVisit, PlateSummary } from "./ituran";
 
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbx008PcNLu8BfjNIudaTDa74a7rVmlPpImBK9QaLR9ITxLR1ahNQjzmgmY-39275eQXng/exec";
+  "https://script.google.com/macros/s/AKfycbwi9M5HSO9E0sZrrZ8bdKLCf5mBYPaIk-j3ZY_Mram3qkSH8pU4i-bcG2XNeZ42o3c8Og/exec";
 
-const BROKEN_GAS_MARKERS = [
-  "TwXhw",
-  "AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw",
-  "AKfycbw6EmTxp0buRjEl7JfKihm4xq2NP3kbGr46lEEYP3x3Vy_3eVkaOTVzChVjXJn5vaS8Ug",
-  "AKfycbwKcoR9kEAAapY9MZIm5cS3MwCsNhqJZgs6ZQDSB99EVcQZ3it8RoLwfAIuzpZXpALTuw",
-];
-
-function gasUrl(): string {
-  const envUrl = process.env["GAS_URL"];
-  if (envUrl && BROKEN_GAS_MARKERS.some((m) => envUrl.includes(m))) {
-    return DEFAULT_GAS_URL;
-  }
+function resolveGasUrl(): string {
+  const envUrl = (process.env["GAS_URL"] || "").trim();
   return envUrl || DEFAULT_GAS_URL;
 }
 
@@ -34,7 +24,7 @@ function apiToken(): string {
 }
 
 async function gasGet(params: Record<string, string>) {
-  const u = new URL(gasUrl());
+  const u = new URL(resolveGasUrl());
   for (const [k, v] of Object.entries({ ...params, token: apiToken() })) {
     u.searchParams.set(k, v);
   }
@@ -44,63 +34,27 @@ async function gasGet(params: Record<string, string>) {
   try {
     data = JSON.parse(text);
   } catch {
-    throw new Error(
-      `תשובה לא תקינה מ-Apps Script (HTTP ${res.status}): ${text.slice(0, 180)}`,
-    );
+    throw new Error(`תשובה לא תקינה מ-Apps Script (HTTP ${res.status})`);
   }
-  if (data.success === false) {
-    throw new Error(String(data.error || "הפעולה נכשלה"));
-  }
+  if (data.error) throw new Error(String(data.error));
+  if (data.success === false) throw new Error("הפעולה נכשלה");
   return data;
 }
 
-export const listIturanVisitsFn = createServerFn({ method: "GET" }).handler(
-  async (): Promise<{ visits: IturanVisit[]; version?: string }> => {
-    const data = await gasGet({ action: "getIturanVisits" });
-    const visits = Array.isArray(data.visits) ? (data.visits as IturanVisit[]) : [];
-    return { visits, version: data.version as string | undefined };
-  },
-);
+export const listIturanVisitsFn = createServerFn({ method: "GET" }).handler(async () => {
+  const data = await gasGet({ action: "getIturanVisits" });
+  return data;
+});
 
-export const listIturanStopsFn = createServerFn({ method: "GET" }).handler(
-  async (): Promise<{
-    stops: GpsStop[];
-    pto: unknown[];
-    plateSummary: PlateSummary[];
-    at: string | null;
-    version?: string;
-  }> => {
-    const data = await gasGet({ action: "getIturanStops" });
-    const rawStops = Array.isArray(data.stops) ? data.stops : [];
-    const stops: GpsStop[] = rawStops.map((s: any) => {
-      const start = String(s.start || s.arrive || "");
-      const end = String(s.end || s.depart || "");
-      const arrive =
-        start.match(/\d{1,2}:\d{2}/)?.[0] ||
-        (start.includes("T") ? start.slice(11, 16) : "") ||
-        "";
-      const depart =
-        end.match(/\d{1,2}:\d{2}/)?.[0] ||
-        (end.includes("T") ? end.slice(11, 16) : "") ||
-        "";
-      return {
-        plate: String(s.plate || s.truck || ""),
-        address: String(s.address || s.site || ""),
-        arrive,
-        depart,
-        driver: s.driver ? String(s.driver) : undefined,
-        durationMin:
-          s.durationMin != null && Number.isFinite(Number(s.durationMin))
-            ? Number(s.durationMin)
-            : undefined,
-      } as GpsStop;
-    });
-    return {
-      stops,
-      pto: Array.isArray(data.pto) ? data.pto : [],
-      plateSummary: Array.isArray(data.plateSummary) ? (data.plateSummary as PlateSummary[]) : [],
-      at: data.at != null ? String(data.at) : null,
-      version: data.version as string | undefined,
-    };
-  },
-);
+export const listIturanStopsFn = createServerFn({ method: "GET" }).handler(async () => {
+  const data = await gasGet({ action: "getIturanStops" });
+  return data;
+});
+
+export const listIturanPtoFn = createServerFn({ method: "GET" })
+  .inputValidator((d?: { since?: string }) => d || {})
+  .handler(async ({ data }) => {
+    const params: Record<string, string> = { action: "getIturanPto", since: "90" };
+    if (data?.since) params.since = String(data.since);
+    return gasGet(params);
+  });
