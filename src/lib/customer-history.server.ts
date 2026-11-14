@@ -1,5 +1,5 @@
 /**
- * טוען תיק לקוח מלא מכל טאבי הגיליון "בדיקת תעודות משלוח".
+ * טוען תיק לקוח מלא מכל טאבי הגיליון.
  * lat/lng מעמודות M/N באתרי_לקוחות.
  */
 import { readGoogleSheetBatch, MASTER_SHEET_ID } from "./smart-dispatch/sheets-integration";
@@ -81,15 +81,27 @@ type Raw = Record<keyof typeof TABS, Row[]>;
 
 async function readTab(name: string): Promise<Row[]> {
   try {
-    const batch = await readGoogleSheetBatch(MASTER_SHEET_ID, [`${name}!A1:ZZ`]);
-    const values = (batch?.[0]?.values || []) as string[][];
-    if (!values.length) return [];
-    const headers = values[0]!.map((h) => normHeader(String(h || "")));
+    // readGoogleSheetBatch מחזיר values[][] ישירות — לא { values }
+    const values = (await readGoogleSheetBatch(
+      MASTER_SHEET_ID,
+      `${name}!A1:ZZ`,
+    )) as (string | number | boolean | null)[][] | null;
+    if (!values || values.length <= 1) return [];
+    const headers = values[0]!.map((h) => normHeader(String(h ?? "")));
     return values.slice(1).map((row) => {
       const o: Row = {};
       headers.forEach((h, i) => {
-        if (h) o[h] = String(row[i] ?? "").trim();
+        if (!h) return;
+        const cell = row[i];
+        o[h] = cell == null ? "" : String(cell).trim();
       });
+      // גיבוי עמודות M/N (אינדקס 12/13) אם הכותרת לא lat/lng
+      if (!o["lat"] && row[12] != null && String(row[12]).trim() !== "") {
+        o["lat"] = String(row[12]).trim();
+      }
+      if (!o["lng"] && row[13] != null && String(row[13]).trim() !== "") {
+        o["lng"] = String(row[13]).trim();
+      }
       return o;
     });
   } catch {
@@ -329,7 +341,6 @@ export async function loadSiteAtlas() {
     if (!address) continue;
     const key = siteKey || `${city}|${address}`;
     const history = (visitsBySite.get(key) || []).sort((a, b) => b.dateIso.localeCompare(a.dateIso));
-    // עמודות M/N: lat / lng
     let latitude =
       parseCoord(g(row, "lat")) ??
       parseCoord(g(row, "Lat")) ??
