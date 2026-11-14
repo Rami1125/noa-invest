@@ -91,6 +91,26 @@ export async function approveStrict(payload: ApprovalPayload) {
   }
 }
 
+/** Convenience wrapper used by src/lib/store.ts approvals.rami / .harel */
+export async function submitApproval(
+  noteId: string,
+  approver: "rami" | "harel",
+  note?: string,
+): Promise<void> {
+  const payload: ApprovalPayload = {
+    action: "submitApproval",
+    noteId,
+    approver,
+    note,
+    timestamp: new Date().toISOString(),
+  };
+  try {
+    await approveStrict(payload);
+  } catch {
+    // Queued in pending by approveStrict — non-blocking for UI stamps
+  }
+}
+
 export async function saveSignedNoteStrict(params: Record<string, unknown>) {
   return saveSignedNoteFn({ data: params as never });
 }
