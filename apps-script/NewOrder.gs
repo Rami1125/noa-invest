@@ -1,12 +1,6 @@
 /**
- * NewOrder.gs — handlers for New Order Studio
- * Paste into the NEW Web App project and wire in Code.gs:
- *   if (action === "getOrderBootstrapData") return handleGetOrderBootstrapData_();
- *   if (action === "injectNewOrder") return handleInjectNewOrder_(body);
- *   if (action === "updateOrderCustomerNumber") return handleUpdateOrderCustomerNumber_(body);
- *
- * Deploy → Manage deployments → Edit → New version
- * Script Properties: API_TOKEN = same value as Vercel API_TOKEN
+ * NewOrder.gs — handlers for New Order Studio (v2 header matching)
+ * Wire in Code.gs, then Deploy → New version.
  */
 var NEW_ORDER_SHEET_ID_ = "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw";
 var NEW_ORDER_CACHE_SEC_ = 300;
@@ -14,15 +8,15 @@ var NEW_ORDER_CACHE_SEC_ = 300;
 var TAB_CUSTOMERS_ = ["תיקי_לקוחות", "תיקי לקוחות", "לקוחות"];
 var TAB_MASTER_ = ["מאגר_לקוחות_מאוחד", "מאגר לקוחות מאוחד"];
 var TAB_SITES_ = ["אתרי_לקוחות", "אתרי לקוחות"];
-var TAB_DICT_ = ["מילון_לוגיסט", "מילון לוגיסט"];
+var TAB_DICT_ = ["מילון_לוגיסט", "מילון לוגיסט", "מילון"];
 var TAB_ORDERS_ = ["הזמנות", "🚚_הזמנות_חיות_וסידור", "הזמנות_חיות_וסידור"];
 
 function noOk_(data) {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, data: data }))
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, success: true, data: data }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 function noErr_(msg) {
-  return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(msg || "שגיאה") }))
+  return ContentService.createTextOutput(JSON.stringify({ ok: false, success: false, error: String(msg || "שגיאה") }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 function noSs_() { return SpreadsheetApp.openById(NEW_ORDER_SHEET_ID_); }
@@ -31,37 +25,74 @@ function noFindSheet_(ss, names) {
     var sh = ss.getSheetByName(names[i]);
     if (sh) return sh;
   }
+  var all = ss.getSheets();
+  for (var j = 0; j < names.length; j++) {
+    var needle = noNorm_(names[j]);
+    for (var k = 0; k < all.length; k++) {
+      if (noNorm_(all[k].getName()).indexOf(needle) >= 0) return all[k];
+    }
+  }
   return null;
 }
+
+function noNorm_(s) {
+  return String(s || "")
+    .replace(/[\u0591-\u05C7]/g, "")
+    .replace(/[\u05F3\u05F4'"׳״""„‟′″`´]/g, "")
+    .replace(/[_./\\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function noHeaderMap_(sheet) {
   var lastCol = Math.max(1, sheet.getLastColumn());
   var headers = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-  var map = {};
+  var map = { _headers: [], _norm: {} };
   for (var c = 0; c < headers.length; c++) {
     var h = String(headers[c] || "").trim();
-    if (h) map[h] = c;
+    map._headers.push(h);
+    if (!h) continue;
+    map[h] = c;
+    var n = noNorm_(h);
+    if (n && map._norm[n] === undefined) map._norm[n] = c;
   }
   return map;
 }
+
 function noCol_(map, names) {
   for (var i = 0; i < names.length; i++) {
-    if (map[names[i]] !== undefined) return map[names[i]];
+    var raw = names[i];
+    if (map[raw] !== undefined) return map[raw];
+    var n = noNorm_(raw);
+    if (map._norm && map._norm[n] !== undefined) return map._norm[n];
+  }
+  if (map._norm) {
+    for (var i2 = 0; i2 < names.length; i2++) {
+      var needle = noNorm_(names[i2]);
+      if (!needle || needle.length < 2) continue;
+      for (var key in map._norm) {
+        if (!Object.prototype.hasOwnProperty.call(map._norm, key)) continue;
+        if (key.indexOf(needle) >= 0 || needle.indexOf(key) >= 0) return map._norm[key];
+      }
+    }
   }
   return -1;
 }
+
 function noRequire_(map, names, label) {
   var idx = noCol_(map, names);
-  if (idx < 0) throw new Error("חסרה כותרת: " + label + " (אפשרויות: " + names.join(" / ") + ")");
+  if (idx < 0) {
+    var found = (map._headers || []).filter(Boolean).join(" | ");
+    throw new Error("חסרה כותרת: " + label + " (חיפשתי: " + names.join(" / ") + "). כותרות בגיליון: " + found);
+  }
   return idx;
-}
-function noNorm_(s) {
-  return String(s || "").replace(/[\u0591-\u05C7]/g, "").replace(/["'"׳״]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function handleGetOrderBootstrapData_() {
   try {
     var cache = CacheService.getScriptCache();
-    var cached = cache.get("orderBootstrapV1");
+    var cached = cache.get("orderBootstrapV2");
     if (cached) return noOk_(JSON.parse(cached));
 
     var ss = noSs_();
@@ -69,20 +100,20 @@ function handleGetOrderBootstrapData_() {
     var shMaster = noFindSheet_(ss, TAB_MASTER_);
     var shSites = noFindSheet_(ss, TAB_SITES_);
     var shDict = noFindSheet_(ss, TAB_DICT_);
-    if (!shCust) throw new Error("לא נמצא טאב תיקי_לקוחות");
-    if (!shDict) throw new Error("לא נמצא טאב מילון_לוגיסט");
+    if (!shCust) throw new Error("לא נמצא טאב תיקי_לקוחות. טאבים: " + ss.getSheets().map(function(s){return s.getName();}).join(", "));
+    if (!shDict) throw new Error("לא נמצא טאב מילון_לוגיסט. טאבים: " + ss.getSheets().map(function(s){return s.getName();}).join(", "));
 
     var hCust = noHeaderMap_(shCust);
     var hDict = noHeaderMap_(shDict);
-    var hMaster = shMaster ? noHeaderMap_(shMaster) : {};
-    var hSites = shSites ? noHeaderMap_(shSites) : {};
+    var hMaster = shMaster ? noHeaderMap_(shMaster) : { _headers: [], _norm: {} };
+    var hSites = shSites ? noHeaderMap_(shSites) : { _headers: [], _norm: {} };
 
-    var cNo = noRequire_(hCust, ["מספר לקוח", "מס_לקוח", "customer_no", "מספר"], "מספר לקוח");
-    var cName = noRequire_(hCust, ["שם לקוח מלא", "שם לקוח", "שם", "name"], "שם לקוח");
-    var cAlias = noCol_(hCust, ["כינויים וסלנג לזיהוי", "כינויים", "סלנג", "aliases"]);
-    var cPhone = noCol_(hCust, ["טלפונים מאומתים", "טלפונים", "טלפון", "phones"]);
-    var cSite = noCol_(hCust, ["אתר ברירת מחדל", "אתר", "default_site"]);
-    var cUnload = noCol_(hCust, ["סוג פריקה טיפוסי", "סוג פריקה", "unload"]);
+    var cNo = noRequire_(hCust, ["מספר לקוח", "מס_לקוח", "customer_no", "מספר", "קוד לקוח", "מס לקוח"], "מספר לקוח");
+    var cName = noRequire_(hCust, ["שם לקוח מלא", "שם לקוח", "שם מלא", "שם", "name", "customer_name"], "שם לקוח");
+    var cAlias = noCol_(hCust, ["כינויים וסלנג לזיהוי", "כינויים", "סלנג", "aliases", "כינוי"]);
+    var cPhone = noCol_(hCust, ["טלפונים מאומתים", "טלפונים", "טלפון", "phones", "נייד"]);
+    var cSite = noCol_(hCust, ["אתר ברירת מחדל", "אתר", "default_site", "כתובת ברירת מחדל"]);
+    var cUnload = noCol_(hCust, ["סוג פריקה טיפוסי", "סוג פריקה", "unload", "פריקה"]);
 
     var custRows = shCust.getDataRange().getDisplayValues();
     var customers = [];
@@ -111,9 +142,9 @@ function handleGetOrderBootstrapData_() {
 
     if (shMaster) {
       var mId = noCol_(hMaster, ["customer_master_id", "master_id", "מזהה"]);
-      var mPrimary = noCol_(hMaster, ["comax_primary_no", "מספר קומקס", "comax"]);
+      var mPrimary = noCol_(hMaster, ["comax_primary_no", "מספר קומקס", "comax", "מספר לקוח"]);
       var mLinked = noCol_(hMaster, ["comax_linked_ids", "מקושרים"]);
-      var mDrive = noCol_(hMaster, ["drive_folder_url", "תיקיית drive", "drive"]);
+      var mDrive = noCol_(hMaster, ["drive_folder_url", "תיקיית drive", "drive", "תיקיה"]);
       var masterRows = shMaster.getDataRange().getDisplayValues();
       var byPrimary = {};
       for (var mr = 1; mr < masterRows.length; mr++) {
@@ -140,7 +171,7 @@ function handleGetOrderBootstrapData_() {
       var sCust = noCol_(hSites, ["מספר לקוח", "customer_no", "לקוח"]);
       var sAddr = noCol_(hSites, ["כתובת", "address", "אתר"]);
       var sCity = noCol_(hSites, ["עיר", "city"]);
-      var sP80 = noCol_(hSites, ["זמני שהייה P80", "P80", "שהייה"]);
+      var sP80 = noCol_(hSites, ["זמני שהייה P80", "P80", "שהייה", "p80"]);
       var sH = noCol_(hSites, ["מרחק מהחרש 10", "החרש", "km_harash"]);
       var sT = noCol_(hSites, ["מרחק מהתלמיד 6", "התלמיד", "km_talmid"]);
       var siteRows = shSites.getDataRange().getDisplayValues();
@@ -167,13 +198,23 @@ function handleGetOrderBootstrapData_() {
       }
     }
 
-    var dSku = noRequire_(hDict, ["מק\"ט ראשי", "מק\"ט", "מקט", "sku"], "מק\"ט");
-    var dName = noRequire_(hDict, ["שם רשמי", "שם", "officialName"], "שם רשמי");
-    var dUnit = noCol_(hDict, ["יחידת מידה", "יחידה", "unit"]);
-    var dSlang = noCol_(hDict, ["סלנג ומילות מפתח לנרמול", "סלנג", "keywords"]);
-    var dDep = noCol_(hDict, ["פקדון", "deposit"]);
-    var dW = noCol_(hDict, ["משקל ליחידה", "משקל", "weight"]);
-    var dWh = noCol_(hDict, ["מחסן מקור ברירת מחדל", "מחסן", "warehouse"]);
+    var dSku = noCol_(hDict, [
+      "מק\"ט ראשי", "מק״ט ראשי", "מקט ראשי", "מק ט ראשי",
+      "מק\"ט", "מק״ט", "מקט", "מק ט",
+      "sku", "SKU", "קוד פריט", "קוד מוצר", "מספר מקט", "פריט"
+    ]);
+    if (dSku < 0) dSku = 0;
+
+    var dName = noCol_(hDict, [
+      "שם רשמי", "שם מוצר", "שם פריט", "תאור", "תיאור", "description", "officialName", "שם"
+    ]);
+    if (dName < 0) dName = Math.min(1, (hDict._headers || []).length - 1);
+
+    var dUnit = noCol_(hDict, ["יחידת מידה", "יחידה", "unit", "יח"]);
+    var dSlang = noCol_(hDict, ["סלנג ומילות מפתח לנרמול", "סלנג", "מילות מפתח", "keywords", "כינויים"]);
+    var dDep = noCol_(hDict, ["פקדון", "deposit", "קוד פקדון"]);
+    var dW = noCol_(hDict, ["משקל ליחידה", "משקל", "weight", "קג", "kg"]);
+    var dWh = noCol_(hDict, ["מחסן מקור ברירת מחדל", "מחסן מקור", "מחסן", "warehouse"]);
     var dDr = noCol_(hDict, ["נהג מומלץ", "נהג", "driver"]);
 
     var dictRows = shDict.getDataRange().getDisplayValues();
@@ -187,7 +228,7 @@ function handleGetOrderBootstrapData_() {
       products.push({
         sku: sku,
         officialName: dName >= 0 ? String(drow[dName] || "").trim() : sku,
-        unit: dUnit >= 0 ? String(drow[dUnit] || "").trim() : "יח'",
+        unit: dUnit >= 0 ? String(drow[dUnit] || "").trim() || "יח'" : "יח'",
         slangKeywords: dSlang >= 0 ? String(drow[dSlang] || "").split(/[,;|]/).map(function (x) { return x.trim(); }).filter(Boolean) : [],
         deposit: deposit,
         weightKgPerUnit: dW >= 0 ? parseFloat(String(drow[dW]).replace(",", ".")) || 0 : 0,
@@ -202,14 +243,14 @@ function handleGetOrderBootstrapData_() {
       fetchedAt: new Date().toISOString(),
       sheetId: NEW_ORDER_SHEET_ID_,
       headerMaps: {
-        customers: Object.keys(hCust),
-        master: Object.keys(hMaster),
-        sites: Object.keys(hSites),
-        dict: Object.keys(hDict),
+        customers: hCust._headers || [],
+        master: hMaster._headers || [],
+        sites: hSites._headers || [],
+        dict: hDict._headers || [],
         orders: []
       }
     };
-    try { cache.put("orderBootstrapV1", JSON.stringify(payload), NEW_ORDER_CACHE_SEC_); } catch (e) {}
+    try { cache.put("orderBootstrapV2", JSON.stringify(payload), NEW_ORDER_CACHE_SEC_); } catch (e) {}
     return noOk_(payload);
   } catch (err) {
     return noErr_(err.message || err);
@@ -343,7 +384,7 @@ function handleUpdateOrderCustomerNumber_(body) {
     var h = noHeaderMap_(shOrders);
     var idCol = noCol_(h, ["מזהה הזמנה", "מזהה", "order_id", "orderId"]);
     var noColIdx = noCol_(h, ["מספר לקוח", "מס_לקוח", "customer_no"]);
-    if (idCol < 0 || noColIdx < 0) throw new Error("חסרות כותרות מזהה/מספר לקוח בטאב הזמנות");
+    if (idCol < 0 || noColIdx < 0) throw new Error("חסרות כותרות מזהה/מספר לקוח בטאב הזמנות. כותרות: " + (h._headers || []).join(" | "));
 
     var data = shOrders.getDataRange().getDisplayValues();
     var found = -1;
