@@ -15,7 +15,7 @@ import type {
 const DEFAULT_GAS_URL =
   process.env["GAS_URL"] ||
   process.env["VITE_SHEETS_ORDERS_URL"] ||
-  "https://script.google.com/macros/s/AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw/exec";
+  "https://script.google.com/macros/s/AKfycbxev7mGClDZ6ERLZtLaApjIn8BfBdpRGdHkjFLKbdrsqY1E0n6kC3U1fsbfBGD-Si17RA/exec";
 
 function gasUrl(): string {
   const url = process.env["GAS_URL"] || process.env["VITE_SHEETS_ORDERS_URL"] || DEFAULT_GAS_URL;
