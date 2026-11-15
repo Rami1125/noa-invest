@@ -27,6 +27,55 @@ function apiToken(): string {
   return process.env["API_TOKEN"] || process.env["GAS_API_TOKEN"] || "";
 }
 
+/** GAS legacy uses {success,error}; NewOrder.gs uses {ok,data,error} */
+type LooseEnvelope<T> = {
+  ok?: boolean;
+  success?: boolean;
+  data?: T;
+  error?: string;
+  action?: string;
+};
+
+function parseGasResponse<T>(text: string, status: number, action: string): T {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error(`GAS ${action}: תשובה ריקה (${status})`);
+  }
+  if (trimmed.startsWith("<") || /<!DOCTYPE/i.test(trimmed) || /<html/i.test(trimmed)) {
+    throw new Error(
+      `GAS החזיר דף HTML במקום JSON — בדקו Deploy (Anyone) ו-API_TOKEN תואם ב-Vercel וב-Script Properties. action=${action}`,
+    );
+  }
+
+  let json: LooseEnvelope<T>;
+  try {
+    json = JSON.parse(trimmed) as LooseEnvelope<T>;
+  } catch {
+    throw new Error(`GAS החזיר לא-JSON (${status}): ${trimmed.slice(0, 120)}`);
+  }
+
+  const failed =
+    json.ok === false ||
+    json.success === false ||
+    (typeof json.ok === "undefined" && typeof json.success === "undefined" && !!json.error);
+
+  if (failed) {
+    const err = String(json.error || `GAS ${action} נכשל`);
+    if (/unauthor/i.test(err)) {
+      throw new Error(
+        `GAS unauthorized — הגדירו API_TOKEN זהה ב-Vercel (API_TOKEN / GAS_API_TOKEN) וב-Apps Script → Project Settings → Script properties. action=${action}`,
+      );
+    }
+    throw new Error(err);
+  }
+
+  // Some legacy endpoints put the payload at the root (no data wrapper)
+  if (json.data !== undefined) return json.data;
+  const { ok: _o, success: _s, error: _e, action: _a, ...rest } = json as Record<string, unknown>;
+  if (Object.keys(rest).length > 0) return rest as T;
+  throw new Error(`GAS ${action} לא החזיר data`);
+}
+
 async function postGas<T>(action: string, body: Record<string, unknown> = {}): Promise<T> {
   const url = new URL(gasUrl());
   url.searchParams.set("action", action);
@@ -35,6 +84,7 @@ async function postGas<T>(action: string, body: Record<string, unknown> = {}): P
 
   const res = await fetch(url.toString(), {
     method: "POST",
+    redirect: "follow",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -43,20 +93,7 @@ async function postGas<T>(action: string, body: Record<string, unknown> = {}): P
   });
 
   const text = await res.text();
-  let json: GasEnvelope<T>;
-  try {
-    json = JSON.parse(text) as GasEnvelope<T>;
-  } catch {
-    throw new Error(`GAS החזיר לא-JSON (${res.status}): ${text.slice(0, 160)}`);
-  }
-
-  if (!res.ok || json.ok === false) {
-    throw new Error(String(json.error || `GAS ${action} נכשל (${res.status})`));
-  }
-  if (json.data === undefined) {
-    throw new Error(`GAS ${action} לא החזיר data`);
-  }
-  return json.data;
+  return parseGasResponse<T>(text, res.status, action);
 }
 
 async function getGas<T>(action: string): Promise<T> {
@@ -67,24 +104,12 @@ async function getGas<T>(action: string): Promise<T> {
 
   const res = await fetch(url.toString(), {
     method: "GET",
+    redirect: "follow",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 
   const text = await res.text();
-  let json: GasEnvelope<T>;
-  try {
-    json = JSON.parse(text) as GasEnvelope<T>;
-  } catch {
-    throw new Error(`GAS החזיר לא-JSON (${res.status}): ${text.slice(0, 160)}`);
-  }
-
-  if (!res.ok || json.ok === false) {
-    throw new Error(String(json.error || `GAS ${action} נכשל (${res.status})`));
-  }
-  if (json.data === undefined) {
-    throw new Error(`GAS ${action} לא החזיר data`);
-  }
-  return json.data;
+  return parseGasResponse<T>(text, res.status, action);
 }
 
 /** Bootstrap: לקוחות + אתרים + מילון (cache בצד GAS ל-5 דק׳) */
@@ -92,8 +117,12 @@ export const getOrderBootstrapFn = createServerFn({ method: "POST" }).handler(
   async (): Promise<OrderBootstrapData> => {
     try {
       return await getGas<OrderBootstrapData>("getOrderBootstrapData");
-    } catch {
-      return await postGas<OrderBootstrapData>("getOrderBootstrapData", {});
+    } catch (first) {
+      try {
+        return await postGas<OrderBootstrapData>("getOrderBootstrapData", {});
+      } catch {
+        throw first;
+      }
     }
   },
 );
@@ -134,3 +163,6 @@ export const updateOrderCustomerNumberFn = createServerFn({ method: "POST" })
       ...data,
     });
   });
+
+// silence unused type import if only used in comments
+void (0 as unknown as GasEnvelope<unknown>);
