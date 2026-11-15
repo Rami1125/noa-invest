@@ -12,14 +12,15 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CanvasRouteImport } from './routes/canvas'
 import { Route as ChatRouteImport } from './routes/chat'
+import { Route as NotebookRouteImport } from './routes/notebook'
+import { Route as LogisticsDictRouteImport } from './routes/logistics-dict'
 import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as HarelRouteImport } from './routes/harel'
 import { Route as InquiryRouteImport } from './routes/inquiry'
 import { Route as IturanRouteImport } from './routes/ituran'
 import { Route as NotesRouteImport } from './routes/notes'
-import { Route as NotebookRouteImport } from './routes/notebook'
-import { Route as NoaConsoleRouteImport } from './routes/noa-console'
 import { Route as OrdersRouteImport } from './routes/orders'
+import { Route as NewOrderRouteImport } from './routes/new-order'
 import { Route as TachographRouteImport } from './routes/tachograph'
 import { Route as ApiBackendRouteImport } from './routes/api.backend'
 import { Route as ApiSplitScanRouteImport } from './routes/api.split-scan'
@@ -42,6 +43,16 @@ const ChatRoute = ChatRouteImport.update({
   path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NotebookRoute = NotebookRouteImport.update({
+  id: '/notebook',
+  path: '/notebook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LogisticsDictRoute = LogisticsDictRouteImport.update({
+  id: '/logistics-dict',
+  path: '/logistics-dict',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CustomersRoute = CustomersRouteImport.update({
   id: '/customers',
   path: '/customers',
@@ -62,12 +73,6 @@ const IturanRoute = IturanRouteImport.update({
   path: '/ituran',
   getParentRoute: () => rootRouteImport,
 } as any)
-const NotebookRoute = NotebookRouteImport.update({
-  id: '/notebook',
-  path: '/notebook',
-  getParentRoute: () => rootRouteImport,
-} as any)
-
 const NotesRoute = NotesRouteImport.update({
   id: '/notes',
   path: '/notes',
@@ -78,9 +83,9 @@ const OrdersRoute = OrdersRouteImport.update({
   path: '/orders',
   getParentRoute: () => rootRouteImport,
 } as any)
-const NoaConsoleRoute = NoaConsoleRouteImport.update({
-  id: '/noa-console',
-  path: '/noa-console',
+const NewOrderRoute = NewOrderRouteImport.update({
+  id: '/new-order',
+  path: '/new-order',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TachographRoute = TachographRouteImport.update({
@@ -99,17 +104,17 @@ const ApiSplitScanRoute = ApiSplitScanRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const CustomersIdRoute = CustomersIdRouteImport.update({
-  id: '/$id',
+  id: '/customers/$id',
   path: '/$id',
   getParentRoute: () => CustomersRoute,
 } as any)
 const InquiryIdRoute = InquiryIdRouteImport.update({
-  id: '/$id',
+  id: '/inquiry/$id',
   path: '/$id',
   getParentRoute: () => InquiryRoute,
 } as any)
 const NotesIdRoute = NotesIdRouteImport.update({
-  id: '/$id',
+  id: '/notes/$id',
   path: '/$id',
   getParentRoute: () => NotesRoute,
 } as any)
@@ -118,13 +123,15 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/canvas': typeof CanvasRoute
   '/chat': typeof ChatRoute
+  '/notebook': typeof NotebookRoute
+  '/logistics-dict': typeof LogisticsDictRoute
   '/customers': typeof CustomersRouteWithChildren
   '/harel': typeof HarelRoute
   '/inquiry': typeof InquiryRouteWithChildren
   '/ituran': typeof IturanRoute
   '/notes': typeof NotesRouteWithChildren
-  '/noa-console': typeof NoaConsoleRoute
   '/orders': typeof OrdersRoute
+  '/new-order': typeof NewOrderRoute
   '/tachograph': typeof TachographRoute
   '/api/backend': typeof ApiBackendRoute
   '/api/split-scan': typeof ApiSplitScanRoute
@@ -136,12 +143,15 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/canvas': typeof CanvasRoute
   '/chat': typeof ChatRoute
+  '/notebook': typeof NotebookRoute
+  '/logistics-dict': typeof LogisticsDictRoute
   '/customers': typeof CustomersRouteWithChildren
   '/harel': typeof HarelRoute
   '/inquiry': typeof InquiryRouteWithChildren
   '/ituran': typeof IturanRoute
   '/notes': typeof NotesRouteWithChildren
   '/orders': typeof OrdersRoute
+  '/new-order': typeof NewOrderRoute
   '/tachograph': typeof TachographRoute
   '/api/backend': typeof ApiBackendRoute
   '/api/split-scan': typeof ApiSplitScanRoute
@@ -154,12 +164,15 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/canvas': typeof CanvasRoute
   '/chat': typeof ChatRoute
+  '/notebook': typeof NotebookRoute
+  '/logistics-dict': typeof LogisticsDictRoute
   '/customers': typeof CustomersRouteWithChildren
   '/harel': typeof HarelRoute
   '/inquiry': typeof InquiryRouteWithChildren
   '/ituran': typeof IturanRoute
   '/notes': typeof NotesRouteWithChildren
   '/orders': typeof OrdersRoute
+  '/new-order': typeof NewOrderRoute
   '/tachograph': typeof TachographRoute
   '/api/backend': typeof ApiBackendRoute
   '/api/split-scan': typeof ApiSplitScanRoute
@@ -173,13 +186,15 @@ export interface FileRouteTypes {
     | '/'
     | '/canvas'
     | '/chat'
+    | '/notebook'
+    | '/logistics-dict'
     | '/customers'
     | '/harel'
     | '/inquiry'
     | '/ituran'
     | '/notes'
-    | '/noa-console'
     | '/orders'
+    | '/new-order'
     | '/tachograph'
     | '/api/backend'
     | '/api/split-scan'
@@ -191,12 +206,15 @@ export interface FileRouteTypes {
     | '/'
     | '/canvas'
     | '/chat'
+    | '/notebook'
+    | '/logistics-dict'
     | '/customers'
     | '/harel'
     | '/inquiry'
     | '/ituran'
     | '/notes'
     | '/orders'
+    | '/new-order'
     | '/tachograph'
     | '/api/backend'
     | '/api/split-scan'
@@ -208,12 +226,15 @@ export interface FileRouteTypes {
     | '/'
     | '/canvas'
     | '/chat'
+    | '/notebook'
+    | '/logistics-dict'
     | '/customers'
     | '/harel'
     | '/inquiry'
     | '/ituran'
     | '/notes'
     | '/orders'
+    | '/new-order'
     | '/tachograph'
     | '/api/backend'
     | '/api/split-scan'
@@ -226,14 +247,16 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CanvasRoute: typeof CanvasRoute
   ChatRoute: typeof ChatRoute
+  NotebookRoute: typeof NotebookRoute
+  LogisticsDictRoute: typeof LogisticsDictRoute
   CustomersRoute: typeof CustomersRouteWithChildren
   HarelRoute: typeof HarelRoute
   InquiryRoute: typeof InquiryRouteWithChildren
   IturanRoute: typeof IturanRoute
   NotesRoute: typeof NotesRouteWithChildren
   OrdersRoute: typeof OrdersRoute
+  NewOrderRoute: typeof NewOrderRoute
   TachographRoute: typeof TachographRoute
-  NoaConsoleRoute: typeof NoaConsoleRoute
   ApiBackendRoute: typeof ApiBackendRoute
   ApiSplitScanRoute: typeof ApiSplitScanRoute
 }
@@ -259,6 +282,20 @@ declare module '@tanstack/react-router' {
       path: '/chat'
       fullPath: '/chat'
       preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notebook': {
+      id: '/notebook'
+      path: '/notebook'
+      fullPath: '/notebook'
+      preLoaderRoute: typeof NotebookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/logistics-dict': {
+      id: '/logistics-dict'
+      path: '/logistics-dict'
+      fullPath: '/logistics-dict'
+      preLoaderRoute: typeof LogisticsDictRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/customers': {
@@ -289,20 +326,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IturanRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/noa-console': {
-      id: '/noa-console'
-      path: '/noa-console'
-      fullPath: '/noa-console'
-      preLoaderRoute: typeof NoaConsoleRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/notebook': {
-      id: '/notebook'
-      path: '/notebook'
-      fullPath: '/notebook'
-      preLoaderRoute: typeof NotebookRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/notes': {
       id: '/notes'
       path: '/notes'
@@ -315,6 +338,13 @@ declare module '@tanstack/react-router' {
       path: '/orders'
       fullPath: '/orders'
       preLoaderRoute: typeof OrdersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/new-order': {
+      id: '/new-order'
+      path: '/new-order'
+      fullPath: '/new-order'
+      preLoaderRoute: typeof NewOrderRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tachograph': {
@@ -399,15 +429,16 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CanvasRoute: CanvasRoute,
   ChatRoute: ChatRoute,
+  NotebookRoute: NotebookRoute,
+  LogisticsDictRoute: LogisticsDictRoute,
   CustomersRoute: CustomersRouteWithChildren,
   HarelRoute: HarelRoute,
   InquiryRoute: InquiryRouteWithChildren,
   IturanRoute: IturanRoute,
   NotesRoute: NotesRouteWithChildren,
-  NotebookRoute: NotebookRoute,
   OrdersRoute: OrdersRoute,
+  NewOrderRoute: NewOrderRoute,
   TachographRoute: TachographRoute,
-  NoaConsoleRoute: NoaConsoleRoute,
   ApiBackendRoute: ApiBackendRoute,
   ApiSplitScanRoute: ApiSplitScanRoute,
 }
