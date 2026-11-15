@@ -40,7 +40,7 @@ import {
 const DESKTOP_NAV = [
   { to: "/", label: "ראשי הראל", icon: Crown },
   { to: "/harel", label: "משימות הראל", icon: Crown },
-  { to: "/order-console", label: "הזמנה חדשה", icon: PackagePlus },
+  { to: "/new-order", label: "הזמנה חדשה", icon: PackagePlus },
   { to: "/orders", label: "הזמנות בסידור", icon: ClipboardList },
   { to: "/stock", label: "מלאי חי", icon: Boxes },
   { to: "/notes-explorer", label: "ארכיון תעודות", icon: Archive },
