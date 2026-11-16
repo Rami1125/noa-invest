@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   PackagePlus,
   Presentation,
+  Wrench,
   BookOpen,
   ShieldCheck,
   Archive,
@@ -48,6 +49,7 @@ const DESKTOP_NAV = [
   { to: "/notes", label: "תעודות משלוח", icon: FileText },
   { to: "/catalog", label: "קטלוג לוגיסטי", icon: BookOpen },
   { to: "/presentations", label: "מצגות יום אספקה", icon: Presentation },
+  { to: "/technical-advisor", label: "יועץ טכני", icon: Wrench },
   { to: "/logistics-dict", label: "מילון · מנוע יצירה", icon: Warehouse },
   { to: "/media-studio", label: "סטודיו מדיה ו-Drive", icon: ImagePlus },
   { to: "/canvas", label: "עריכת תעודה (קנבס)", icon: Edit3 },
@@ -63,7 +65,6 @@ const DESKTOP_NAV = [
   { to: "/inquiry", label: "בירור תעודות", icon: Search },
 ] as const;
 
-/** ניווט תחתון מובייל — בירור · נועה · תעודות · הראל */
 const MOBILE_NAV = [
   { to: "/inquiry", label: "בירור", icon: Search },
   { to: "/chat", label: "נועה", icon: MessageCircle },
