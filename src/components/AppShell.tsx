@@ -13,6 +13,7 @@ import {
   MapPin,
   LayoutDashboard,
   PackagePlus,
+  Presentation,
   BookOpen,
   ShieldCheck,
   Archive,
@@ -46,7 +47,8 @@ const DESKTOP_NAV = [
   { to: "/notes-explorer", label: "ארכיון תעודות", icon: Archive },
   { to: "/notes", label: "תעודות משלוח", icon: FileText },
   { to: "/catalog", label: "קטלוג לוגיסטי", icon: BookOpen },
-  { to: "/logistics-dict", label: "מילון · מצגת", icon: Warehouse },
+  { to: "/presentations", label: "מצגות יום אספקה", icon: Presentation },
+  { to: "/logistics-dict", label: "מילון · מנוע יצירה", icon: Warehouse },
   { to: "/media-studio", label: "סטודיו מדיה ו-Drive", icon: ImagePlus },
   { to: "/canvas", label: "עריכת תעודה (קנבס)", icon: Edit3 },
   { to: "/customers", label: "תיקי לקוחות", icon: Users },
@@ -83,7 +85,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const moreActive = MOBILE_MORE.some((m) => active(m.to));
 
-  /** רטט רק אחרי מחוות משתמש (לחיצה על ניווט) — לא בטעינה */
   const triggerHaptic = () => {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
