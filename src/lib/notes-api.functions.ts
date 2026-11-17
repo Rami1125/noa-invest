@@ -114,10 +114,11 @@ export const getCatalogFn = createServerFn({ method: "POST" }).handler(async () 
 });
 
 export const getScanFn = createServerFn({ method: "POST" })
-  .inputValidator((d: { noteId?: string; id?: string }) => d)
+  .inputValidator((d: { noteId?: string; id?: string; fileId?: string }) => d)
   .handler(async ({ data }) => {
-    const id = String(data?.noteId || data?.id || "").trim();
-    if (!id) throw new Error("חסר מספר תעודה");
+    // הלקוח שולח fileId (מזהה Drive); GAS getFile מצפה ל-id
+    const id = String(data?.fileId || data?.id || data?.noteId || "").trim();
+    if (!id) throw new Error("חסר מזהה קובץ סריקה (fileId) או מספר תעודה");
     return gasGet("getFile", { id });
   });
 
