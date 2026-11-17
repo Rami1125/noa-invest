@@ -1,5 +1,5 @@
 // Saban Flow Service Worker (sw.js)
-const CACHE_NAME = "saban-flow-v1";
+const CACHE_NAME = "saban-flow-v2";
 const PRECACHE_ASSETS = [
   "/",
   "/?mode=standalone",
@@ -36,11 +36,9 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  // Only handle GET requests and skip API or dev endpoints
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
 
-  // Network-first for HTML / routes, fallback to cache
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request)
@@ -59,13 +57,17 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Cache-first for images, fonts, and static assets
+  // Cache-first for hashed build assets and static media (not API)
   if (
-    url.pathname.startsWith("/assets") ||
+    url.pathname.startsWith("/assets/") ||
     url.pathname.endsWith(".png") ||
     url.pathname.endsWith(".svg") ||
     url.pathname.endsWith(".jpg") ||
-    url.pathname.endsWith(".woff2")
+    url.pathname.endsWith(".jpeg") ||
+    url.pathname.endsWith(".webp") ||
+    url.pathname.endsWith(".woff2") ||
+    url.pathname.endsWith(".woff") ||
+    /\.[a-f0-9]{8,}\.(js|css)$/i.test(url.pathname)
   ) {
     event.respondWith(
       caches.match(event.request).then((cached) => {
@@ -82,7 +84,6 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
-// Push notification handling for OneSignal / background alerts
 self.addEventListener("push", (event) => {
   let data = { title: "ח. סבן — התראת סידור", body: "התקבלה תעודה חדשה לבדיקה", url: "/" };
   if (event.data) {
