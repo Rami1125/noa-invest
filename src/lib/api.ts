@@ -11,7 +11,7 @@ import { listNotesFn, approvalFn, saveSignedNoteFn, type SheetNote } from "./not
 import { fetchLiveOrdersFromSheet } from "./google-orders";
 
 export const API_BASE =
-  "https://script.google.com/macros/s/AKfycbwi9M5HSO9E0sZrrZ8bdKLCf5mBYPaIk-j3ZY_Mram3qkSH8pU4i-bcG2XNeZ42o3c8Og/exec";
+  "https://script.google.com/macros/s/AKfycby5zIF7WQ0yhGVdO5LjQlzr73_lA18tjg7Dg-ZzYyaSmNFXiCyPoHzDGbMLcIS6WwRCKA/exec";
 
 export const MASTER_SHEET_ID = "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw";
 
