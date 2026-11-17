@@ -28,6 +28,7 @@ import { type ReactNode, useState, useEffect, useRef } from "react";
 import { useLocation, Link } from "@tanstack/react-router";
 import noa from "@/assets/noa.jpg";
 import { PWAInstallButton } from "./PWAInstallButton";
+import { GasConnectionBanner } from "@/components/GasConnectionBanner";
 import { useTheme } from "@/hooks/use-theme";
 
 import { toast } from "sonner";
@@ -170,6 +171,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 pb-nav outline-none lg:pb-6">
+        <GasConnectionBanner />
         {children}
       </main>
 
