@@ -30,14 +30,27 @@ async function gasGet(params: Record<string, string>) {
   }
   const res = await fetch(u.toString(), { method: "GET", redirect: "follow" });
   const text = await res.text();
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error(`תשובה ריקה מ-Apps Script (HTTP ${res.status})`);
+  }
+  if (/^<!DOCTYPE html/i.test(trimmed) || /^<html/i.test(trimmed)) {
+    throw new Error(
+      `Apps Script החזיר HTML במקום JSON (HTTP ${res.status}) — בדוק פריסת Web App / הרשאות`,
+    );
+  }
   let data: Record<string, unknown>;
   try {
-    data = JSON.parse(text);
+    data = JSON.parse(trimmed);
   } catch {
-    throw new Error(`תשובה לא תקינה מ-Apps Script (HTTP ${res.status})`);
+    throw new Error(
+      `תשובה לא תקינה מ-Apps Script (HTTP ${res.status}, תחילת גוף: ${trimmed.slice(0, 80)})`,
+    );
   }
   if (data.error) throw new Error(String(data.error));
-  if (data.success === false) throw new Error("הפעולה נכשלה");
+  if (data.success === false) {
+    throw new Error(String(data.message || data.error || "הפעולה נכשלה"));
+  }
   return data;
 }
 
