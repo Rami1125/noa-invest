@@ -50,7 +50,7 @@ import {
 
 const SiteMap = lazy(() => import("@/components/site-map"));
 const tabs = [
-  { id: "map", label: "מפת אתרים", icon: Map },
+  { id: "map", label: "מפת אתרים", icon: MapIcon },
   { id: "analytics", label: "אנליטיקת אתרים", icon: Activity },
   { id: "warehouses", label: "השוואת מחסנים", icon: Warehouse },
   { id: "customers", label: "מודיעין לקוחות", icon: Users },
