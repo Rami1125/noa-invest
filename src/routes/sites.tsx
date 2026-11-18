@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 
 export const Route = createFileRoute('/sites')({
   component: SitesPage,
@@ -32,6 +30,41 @@ const WAREHOUSES = [
   { id: 'wh-haharash', name: 'מחסן החרש 10', lat: 32.1508, lng: 34.8926 },
   { id: 'wh-hatalmid', name: 'מחסן התלמיד 6', lat: 32.1544, lng: 34.8886 },
 ];
+
+function loadLeafletFromCdn(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined') return reject(new Error('SSR'));
+
+    if (!document.getElementById('leaflet-cdn-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-cdn-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+
+    const win = window as any;
+    if (win.L) {
+      resolve(win.L);
+      return;
+    }
+
+    const existingScript = document.getElementById('leaflet-cdn-js') as HTMLScriptElement | null;
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve(win.L));
+      existingScript.addEventListener('error', () => reject(new Error('Failed to load Leaflet')));
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = 'leaflet-cdn-js';
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.async = true;
+    script.onload = () => resolve(win.L);
+    script.onerror = () => reject(new Error('Failed to load Leaflet'));
+    document.head.appendChild(script);
+  });
+}
 
 function isValidCoord(lat: unknown, lng: unknown): lat is number {
   return (
@@ -85,13 +118,15 @@ function SitesPage() {
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<'all' | 'warning' | 'critical'>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const mapRef = useRef<any>(null);
+  const markersLayerRef = useRef<any>(null);
+  const leafletRef = useRef<any>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const fetchSites = async () => {
@@ -136,38 +171,52 @@ function SitesPage() {
   }, [sites]);
 
   useEffect(() => {
-    if (!mapContainerRef.current || mapRef.current) return;
+    let cancelled = false;
 
-    const map = L.map(mapContainerRef.current, {
-      center: [32.1525, 34.8906],
-      zoom: 12,
-      zoomControl: true,
-    });
+    loadLeafletFromCdn()
+      .then((L) => {
+        if (cancelled || !mapContainerRef.current || mapRef.current) return;
+        leafletRef.current = L;
 
-    const cartoKey = import.meta.env.VITE_CARTO_API_KEY?.trim();
-    const tileUrl = cartoKey
-      ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=${encodeURIComponent(cartoKey)}`
-      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+        const map = L.map(mapContainerRef.current, {
+          center: [32.1525, 34.8906],
+          zoom: 12,
+          zoomControl: true,
+        });
 
-    const attribution = cartoKey
-      ? '&copy; OpenStreetMap &copy; CARTO'
-      : '&copy; OpenStreetMap';
+        const cartoKey = import.meta.env.VITE_CARTO_API_KEY?.trim();
+        const tileUrl = cartoKey
+          ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=${encodeURIComponent(cartoKey)}`
+          : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-    L.tileLayer(tileUrl, { attribution, maxZoom: 19 }).addTo(map);
-    markersLayerRef.current = L.layerGroup().addTo(map);
-    mapRef.current = map;
+        const attribution = cartoKey
+          ? '&copy; OpenStreetMap &copy; CARTO'
+          : '&copy; OpenStreetMap';
+
+        L.tileLayer(tileUrl, { attribution, maxZoom: 19 }).addTo(map);
+        markersLayerRef.current = L.layerGroup().addTo(map);
+        mapRef.current = map;
+        setMapReady(true);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
+      });
 
     return () => {
-      map.remove();
-      mapRef.current = null;
-      markersLayerRef.current = null;
+      cancelled = true;
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        markersLayerRef.current = null;
+      }
     };
   }, []);
 
   useEffect(() => {
+    const L = leafletRef.current;
     const map = mapRef.current;
     const layer = markersLayerRef.current;
-    if (!map || !layer) return;
+    if (!mapReady || !L || !map || !layer) return;
 
     layer.clearLayers();
     const bounds = L.latLngBounds([]);
@@ -222,7 +271,7 @@ function SitesPage() {
     if (bounds.isValid() && !selectedId) {
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
     }
-  }, [filteredSites, selectedId]);
+  }, [mapReady, filteredSites, selectedId]);
 
   const handleSelectCard = (site: SiteRecord) => {
     setSelectedId(site.id);
