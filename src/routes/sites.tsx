@@ -22,7 +22,7 @@ interface SiteRecord {
 
 const GAS_SITES_URL =
   import.meta.env.VITE_GAS_WEBAPP_URL ||
-  'https://script.google.com/macros/s/AKfycbx008PcNLu8BfjNIudaTDa74a7rVmlPpImBK9QaLR9ITxLR1ahNQjzmgmY-39275eQXng/exec';
+  'https://script.google.com/macros/s/AKfycbzuFyKoO4dw3U3KyYK5AEAVeSe87PXJ9wr-evBlB6NgufDe4YM7Qi0U00ACIgPYXM55Ig/exec';
 
 const GAS_TOKEN = import.meta.env.VITE_GAS_TOKEN || 'rami_1a084c2a6b9ed55a';
 
