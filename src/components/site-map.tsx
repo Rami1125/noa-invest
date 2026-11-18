@@ -80,23 +80,22 @@ export default function SiteMap({
     loadLeaflet()
       .then((L) => {
         if (cancelled || !containerRef.current || mapRef.current) return;
-        const map = L.map(containerRef.current, { center: [32.1525, 34.8906], zoom: 13 });
+        const map = L.map(containerRef.current, { zoomControl: true }).setView([32.12, 34.9], 11);
         L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution: "&copy; OpenStreetMap",
           maxZoom: 19,
+          attribution: "&copy; OpenStreetMap",
         }).addTo(map);
-        layerRef.current = L.layerGroup().addTo(map);
         mapRef.current = map;
+        layerRef.current = L.layerGroup().addTo(map);
         setReady(true);
+        setTimeout(() => map.invalidateSize(), 80);
       })
-      .catch(() => {});
-
+      .catch((e) => console.error(e));
     return () => {
       cancelled = true;
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
-        layerRef.current = null;
       }
     };
   }, []);
@@ -105,7 +104,7 @@ export default function SiteMap({
     const L = (window as any).L;
     const map = mapRef.current;
     const layer = layerRef.current;
-    if (!ready || !L || !map || !layer || typeof layer.clearLayers !== "function") return;
+    if (!ready || !L || !map || !layer) return;
 
     layer.clearLayers();
     markersByIdRef.current = {};
@@ -114,14 +113,16 @@ export default function SiteMap({
     warehouses.forEach((w) => {
       if (!validCoordinates(w.lat, w.lng)) return;
       const isOrigin = w.id === origin;
-      const icon = L.divIcon({
-        className: "saban-warehouse-pin",
-        html: `<div style="background:${isOrigin ? "#EA580C" : "#102A43"};color:#FFF;font-family:Rubik,Heebo,sans-serif;font-weight:700;font-size:11px;padding:4px 10px;border-radius:9999px;border:2px solid #FFF;box-shadow:0 2px 8px rgba(0,0,0,0.3);white-space:nowrap;">${escapeHtml(w.name)}</div>`,
-        iconSize: [120, 26],
-        iconAnchor: [60, 13],
-      });
-      L.marker([w.lat, w.lng], { icon })
-        .bindPopup(`<div dir="rtl"><strong>${escapeHtml(w.name)}</strong><br/>${isOrigin ? "מחסן מוצא פעיל" : "מחסן סבן"}</div>`)
+      L.circleMarker([w.lat, w.lng], {
+        radius: isOrigin ? 12 : 9,
+        fillColor: isOrigin ? "#102A43" : "#20A4C8",
+        color: "#fff",
+        weight: 2,
+        fillOpacity: 1,
+      })
+        .bindPopup(
+          `<div dir="rtl"><strong>${escapeHtml(w.name)}</strong><br/>${isOrigin ? "מחסן מוצא פעיל" : "מחסן סבן"}</div>`,
+        )
         .addTo(layer);
       bounds.extend([w.lat, w.lng]);
     });
@@ -169,10 +170,11 @@ export default function SiteMap({
 
   return (
     <div className="relative w-full">
-      <div ref={containerRef} className="map-frame min-h-[480px] w-full rounded-xl overflow-hidden" />
+      <div ref={containerRef} className="map-frame min-h-[520px] w-full rounded-xl overflow-hidden" />
       {selectedSite && !validCoordinates(selectedSite.lat, selectedSite.lng) && (
         <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
-          לאתר <strong>{selectedSite.customer}</strong> ({selectedSite.address}) עדיין אין קואורדינטות GPS שמורות — הרץ <code>enrichSitesDistanceAndGps()</code> בגיליון כדי למקם סיכה ולבצע Zoom.
+          לאתר <strong>{selectedSite.customer}</strong> ({selectedSite.address}) עדיין אין קואורדינטות GPS שמורות — הרץ{" "}
+          <code>enrichSitesDistanceAndGps()</code> בגיליון כדי למקם סיכה ולבצע Zoom.
         </div>
       )}
     </div>

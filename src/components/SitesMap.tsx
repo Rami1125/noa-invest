@@ -1,6 +1,7 @@
 /**
- * מפת אתרים — CARTO Basemaps (כשיש מפתח) או OSM
- * טוען Leaflet מ־CDN כדי לא להוסיף תלות npm כבדה
+ * מפת אתרים — Leaflet
+ * אם קיים VITE_CARTO_API_KEY (או prop cartoKey) → CARTO Voyager עם מפתח.
+ * אחרת → Carto Voyager חינמי / OpenStreetMap — בלי חסימה על API key.
  */
 import { useEffect, useRef } from "react";
 import type { AtlasSite } from "@/lib/customer-history.functions";
@@ -8,6 +9,7 @@ import type { AtlasSite } from "@/lib/customer-history.functions";
 type Props = {
   sites: AtlasSite[];
   selected?: AtlasSite | null;
+  /** מפתח CARTO אופציונלי; אם חסר נטען basemap חינמי */
   cartoKey?: string;
   className?: string;
 };
@@ -37,6 +39,18 @@ declare global {
       latLngBounds: (pts: [number, number][]) => unknown;
       Icon: { Default: { prototype: Record<string, unknown>; mergeOptions: (o: object) => void } };
     };
+  }
+}
+
+/** קריאת מפתח CARTO מהסביבה — אופציונלי בלבד, לא חוסם */
+function resolveCartoKey(propKey?: string): string {
+  const fromProp = String(propKey || "").trim();
+  if (fromProp) return fromProp;
+  try {
+    const env = (import.meta as unknown as { env?: Record<string, string> }).env;
+    return String(env?.["VITE_CARTO_API_KEY"] || "").trim();
+  } catch {
+    return "";
   }
 }
 
@@ -76,14 +90,53 @@ function loadLeaflet(): Promise<NonNullable<typeof window.L>> {
 }
 
 function pinIcon(L: NonNullable<typeof window.L>, active: boolean) {
-  const bg = active ? "#0ea5e9" : "#64748b";
+  const bg = active ? "#1769AA" : "#20A4C8";
   const scale = active ? 1.15 : 1;
   return L.divIcon({
-    className: "",
-    html: `<div style="width:${28 * scale}px;height:${28 * scale}px;border-radius:50% 50% 50% 0;background:${bg};border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);transform:rotate(-45deg);margin-left:-${14 * scale}px;margin-top:-${28 * scale}px"></div>`,
-    iconSize: [28 * scale, 28 * scale],
-    iconAnchor: [14 * scale, 28 * scale],
+    className: "saban-sites-pin",
+    html: `<div style="
+      transform:scale(${scale});
+      width:18px;height:18px;border-radius:50%;
+      background:${bg};border:2px solid #fff;
+      box-shadow:0 2px 6px rgba(16,42,67,.35);
+    "></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
   });
+}
+
+/** שכבת basemap — לעולם לא נחסמת על היעדר API key */
+function addBasemap(
+  L: NonNullable<typeof window.L>,
+  map: { addLayer: (l: unknown) => void },
+  cartoKey: string,
+) {
+  if (cartoKey) {
+    L.tileLayer(
+      `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoKey)}`,
+      {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        subdomains: "abcd",
+        maxZoom: 20,
+      },
+    ).addTo(map);
+    return;
+  }
+  // חינמי ללא מפתח
+  try {
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      subdomains: "abcd",
+      maxZoom: 20,
+    }).addTo(map);
+  } catch {
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(map);
+  }
 }
 
 export function SitesMap({ sites, selected, cartoKey, className }: Props) {
@@ -92,6 +145,7 @@ export function SitesMap({ sites, selected, cartoKey, className }: Props) {
   const markersRef = useRef<Map<string, { setIcon: (i: unknown) => void }>>(new Map());
 
   const points = sites.filter((s) => s.latitude != null && s.longitude != null);
+  const resolvedKey = resolveCartoKey(cartoKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,23 +182,7 @@ export function SitesMap({ sites, selected, cartoKey, className }: Props) {
           attributionControl: true,
         }).setView(center, selected ? 14 : 11);
 
-        const key = (cartoKey || "").trim();
-        if (key) {
-          L.tileLayer(
-            `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(key)}`,
-            {
-              attribution:
-                '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-              subdomains: "abcd",
-              maxZoom: 20,
-            },
-          ).addTo(map);
-        } else {
-          L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-            maxZoom: 19,
-          }).addTo(map);
-        }
+        addBasemap(L, map, resolvedKey);
 
         markersRef.current.clear();
         const latlngs: [number, number][] = [];
@@ -152,15 +190,14 @@ export function SitesMap({ sites, selected, cartoKey, className }: Props) {
           const keyId = site.siteKey || `${site.city}|${site.address}`;
           const isActive =
             selected &&
-            ((selected.siteKey && selected.siteKey === site.siteKey) ||
-              selected.address === site.address);
+            ((selected.siteKey && selected.siteKey === site.siteKey) || selected.address === site.address);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const m: any = L.marker([site.latitude!, site.longitude!], {
             icon: pinIcon(L, !!isActive),
           });
           m.options.siteKey = keyId;
           m.bindPopup(
-            `<strong>${site.address || "אתר"}</strong><br/>${site.city || ""} · ${site.visits ?? 0} ביקורים`,
+            `<div dir="rtl"><strong>${site.address || "אתר"}</strong><br/>${site.city || ""} · ${site.visits ?? 0} ביקורים</div>`,
           );
           m.addTo(map);
           markersRef.current.set(keyId, m as unknown as { setIcon: (i: unknown) => void });
@@ -185,7 +222,7 @@ export function SitesMap({ sites, selected, cartoKey, className }: Props) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartoKey, points.length]);
+  }, [resolvedKey, points.length]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -198,24 +235,23 @@ export function SitesMap({ sites, selected, cartoKey, className }: Props) {
     });
   }, [selected]);
 
-  if (!points.length) {
-    return (
-      <div className={className}>
-        <div className="grid min-h-72 place-items-center bg-muted/30 px-6 py-12 text-center md:min-h-[360px]">
-          <div className="max-w-md">
-            <p className="font-display font-bold">אין קואורדינטות להצגת סיכות</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              בגיליון «אתרי_לקוחות» חסרים קווי רוחב/אורך. כתובות לא נשלחות לשירות מיפוי חיצוני.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // תמיד מציגים את מסגרת המפה — גם בלי סיכות GPS
   return (
     <div className={className}>
-      <div ref={containerRef} className="h-72 w-full md:h-[360px]" dir="ltr" />
+      <div
+        ref={containerRef}
+        className="min-h-[520px] w-full rounded-xl overflow-hidden bg-slate-100"
+        dir="ltr"
+        aria-label="מפת אתרים"
+      />
+      {!points.length && (
+        <p className="mt-2 text-center text-xs font-medium text-muted-foreground">
+          אין עדיין קואורדינטות לסיכות לקוחות בגיליון «אתרי_לקוחות». המפה מוצגת; הרץ{" "}
+          <code className="rounded bg-muted px-1">enrichSitesDistanceAndGps()</code> ב-Apps Script.
+        </p>
+      )}
     </div>
   );
 }
+
+export default SitesMap;
