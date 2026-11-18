@@ -7,24 +7,29 @@ export const Route = createFileRoute('/sites')({
 
 interface SiteRecord {
   id: string;
+  siteKey: string;
   customerName: string;
   address: string;
   city: string;
   region: string;
   lat: number | null;
   lng: number | null;
-  severity: 'normal' | 'warning' | 'critical';
-  p80Minutes: number | null;
-  visitsCount: number;
-  ptoCount: number;
-  lastVisit?: string;
+  severity: 'normal' | 'delayed' | 'critical';
+  visits: number;
+  avgStopMin: number | null;
+  maxStopMin: number | null;
+  p80Min: number | null;
+  distHarashKm: number | null;
+  driveHarashMin: number | null;
+  distTalmidKm: number | null;
+  driveTalmidMin: number | null;
 }
 
 const GAS_SITES_URL =
   import.meta.env.VITE_GAS_WEBAPP_URL ||
-  'https://script.google.com/macros/s/AKfycbzuFyKoO4dw3U3KyYK5AEAVeSe87PXJ9wr-evBlB6NgufDe4YM7Qi0U00ACIgPYXM55Ig/exec';
+  'https://script.google.com/macros/s/AKfycbwgtQOFDgLh6mMtTNvLvLaH8rLNrk9C3o13VdMMNAylF_SLp388GXG9NCsFdmEvm1xMGA/exec';
 
-const GAS_TOKEN = import.meta.env.GAS_TOKEN || 'rami_1a084c2a6b9ed55a';
+const GAS_TOKEN = import.meta.env.VITE_GAS_TOKEN || 'rami_1a084c2a6b9ed55a';
 
 const WAREHOUSES = [
   { id: 'wh-haharash', name: 'מחסן החרש 10', lat: 32.1508, lng: 34.8926 },
@@ -77,40 +82,52 @@ function isValidCoord(lat: unknown, lng: unknown): lat is number {
   );
 }
 
+function toNumOrNull(val: unknown): number | null {
+  if (val === '' || val === null || val === undefined) return null;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : null;
+}
+
 function normalizeSite(raw: Record<string, unknown>, idx: number): SiteRecord {
-  const latNum = raw.lat !== '' && raw.lat != null ? Number(raw.lat) : null;
-  const lngNum = raw.lng !== '' && raw.lng != null ? Number(raw.lng) : null;
-  const p80 = raw.p80Minutes != null ? Number(raw.p80Minutes) : raw.p80 != null ? Number(raw.p80) : null;
+  const latNum = toNumOrNull(raw.lat);
+  const lngNum = toNumOrNull(raw.lng);
+  const p80 = toNumOrNull(raw.p80Min ?? raw.p80Minutes ?? raw.p80);
+  const rawSev = String(raw.severity || '').toLowerCase();
 
   let severity: SiteRecord['severity'] = 'normal';
-  if (raw.severity === 'critical' || (p80 !== null && p80 >= 30)) severity = 'critical';
-  else if (raw.severity === 'warning' || (p80 !== null && p80 >= 20)) severity = 'warning';
+  if (rawSev === 'critical' || (p80 !== null && p80 >= 26)) severity = 'critical';
+  else if (rawSev === 'delayed' || rawSev === 'warning' || (p80 !== null && p80 >= 19)) severity = 'delayed';
 
   return {
-    id: String(raw.id || raw.siteId || `site-${idx}`),
-    customerName: String(raw.customerName || raw.customer || raw.name || 'לקוח ללא שם'),
+    id: String(raw.rowNumber ?? raw.id ?? raw.siteKey ?? `site-${idx}`),
+    siteKey: String(raw.siteKey || ''),
+    customerName: String(raw.customer || raw.customerName || raw.name || 'לקוח ללא שם'),
     address: String(raw.address || ''),
     city: String(raw.city || ''),
-    region: String(raw.region || 'מרכז'),
+    region: String(raw.region || ''),
     lat: isValidCoord(latNum, lngNum) ? latNum : null,
     lng: isValidCoord(latNum, lngNum) ? lngNum : null,
     severity,
-    p80Minutes: Number.isFinite(p80) ? p80 : null,
-    visitsCount: Number(raw.visitsCount || raw.visits || 0),
-    ptoCount: Number(raw.ptoCount || raw.ptos || 0),
-    lastVisit: raw.lastVisit ? String(raw.lastVisit) : undefined,
+    visits: Number(raw.visits ?? raw.visitsCount ?? 0),
+    avgStopMin: toNumOrNull(raw.avgStopMin),
+    maxStopMin: toNumOrNull(raw.maxStopMin),
+    p80Min: p80,
+    distHarashKm: toNumOrNull(raw.distHarashKm),
+    driveHarashMin: toNumOrNull(raw.driveHarashMin),
+    distTalmidKm: toNumOrNull(raw.distTalmidKm),
+    driveTalmidMin: toNumOrNull(raw.driveTalmidMin),
   };
 }
 
 function getSeverityColor(severity: SiteRecord['severity']): string {
   if (severity === 'critical') return '#DC2626';
-  if (severity === 'warning') return '#D97706';
+  if (severity === 'delayed') return '#D97706';
   return '#1769AA';
 }
 
 function getSeverityLabel(severity: SiteRecord['severity']): string {
   if (severity === 'critical') return 'קריטי';
-  if (severity === 'warning') return 'מעכב';
+  if (severity === 'delayed') return 'מעכב';
   return 'תקין';
 }
 
@@ -120,7 +137,7 @@ function SitesPage() {
   const [error, setError] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [search, setSearch] = useState('');
-  const [severityFilter, setSeverityFilter] = useState<'all' | 'warning' | 'critical'>('all');
+  const [severityFilter, setSeverityFilter] = useState<'all' | 'delayed' | 'critical'>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -137,7 +154,13 @@ function SitesPage() {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      const rows = Array.isArray(json) ? json : Array.isArray(json.sites) ? json.sites : Array.isArray(json.data) ? json.data : [];
+      const rows = Array.isArray(json)
+        ? json
+        : Array.isArray(json.sites)
+          ? json.sites
+          : Array.isArray(json.data)
+            ? json.data
+            : [];
       setSites(rows.map((r: Record<string, unknown>, i: number) => normalizeSite(r, i)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שגיאה בטעינת נתוני אתרים');
@@ -163,11 +186,16 @@ function SitesPage() {
     });
   }, [sites, search, severityFilter]);
 
+  const selectedSite = useMemo(
+    () => sites.find((s) => s.id === selectedId) || null,
+    [sites, selectedId]
+  );
+
   const stats = useMemo(() => {
     const withCoords = sites.filter((s) => isValidCoord(s.lat, s.lng)).length;
-    const warning = sites.filter((s) => s.severity === 'warning').length;
+    const delayed = sites.filter((s) => s.severity === 'delayed').length;
     const critical = sites.filter((s) => s.severity === 'critical').length;
-    return { total: sites.length, withCoords, warning, critical };
+    return { total: sites.length, withCoords, delayed, critical };
   }, [sites]);
 
   useEffect(() => {
@@ -189,9 +217,7 @@ function SitesPage() {
           ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=${encodeURIComponent(cartoKey)}`
           : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-        const attribution = cartoKey
-          ? '&copy; OpenStreetMap &copy; CARTO'
-          : '&copy; OpenStreetMap';
+        const attribution = cartoKey ? '&copy; OpenStreetMap &copy; CARTO' : '&copy; OpenStreetMap';
 
         L.tileLayer(tileUrl, { attribution, maxZoom: 19 }).addTo(map);
         markersLayerRef.current = L.layerGroup().addTo(map);
@@ -249,9 +275,9 @@ function SitesPage() {
       marker.bindPopup(
         `<div dir="rtl" style="font-family:Heebo,sans-serif;min-width:170px;">
           <div style="font-weight:700;color:#102A43;margin-bottom:4px;">${site.customerName}</div>
-          <div style="font-size:12px;color:#334E68;">${site.address}${site.city ? `, ${site.city}` : ''}</div>
-          ${site.p80Minutes != null ? `<div style="font-size:12px;margin-top:4px;">P80: <strong>${site.p80Minutes} דק׳</strong></div>` : ''}
-          <div style="font-size:12px;">ביקורים: <strong>${site.visitsCount}</strong> · PTO: <strong>${site.ptoCount}</strong></div>
+          <div style="font-size:12px;color:#334E68;">${site.address}</div>
+          ${site.p80Min != null ? `<div style="font-size:12px;margin-top:4px;">P80: <strong>${site.p80Min} דק׳</strong></div>` : ''}
+          <div style="font-size:12px;">ביקורים: <strong>${site.visits}</strong></div>
         </div>`
       );
 
@@ -287,7 +313,7 @@ function SitesPage() {
           <div>
             <h1 className="text-xl md:text-2xl font-bold text-[#102A43]">מודיעין אתרים · תכנון לסדרן</h1>
             <p className="text-sm text-slate-600 mt-1">
-              {stats.total} אתרים · {stats.withCoords} סיכות במפה · {stats.warning} מעכבים · {stats.critical} קריטיים
+              {stats.total} אתרים · {stats.withCoords} סיכות במפה · {stats.delayed} מעכבים · {stats.critical} קריטיים
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -298,7 +324,7 @@ function SitesPage() {
               placeholder="חיפוש לקוח, כתובת או עיר..."
               className="px-3 py-2 rounded-xl border border-slate-300 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#1769AA] min-w-[220px]"
             />
-            {(['all', 'warning', 'critical'] as const).map((level) => (
+            {(['all', 'delayed', 'critical'] as const).map((level) => (
               <button
                 key={level}
                 type="button"
@@ -309,7 +335,7 @@ function SitesPage() {
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                {level === 'all' ? 'הכל' : level === 'warning' ? 'מעכבים' : 'קריטיים'}
+                {level === 'all' ? 'הכל' : level === 'delayed' ? 'מעכבים' : 'קריטיים'}
               </button>
             ))}
             <button
@@ -325,6 +351,59 @@ function SitesPage() {
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">
             שגיאה בטעינת אתרים: {error}
+          </div>
+        )}
+
+        {selectedSite && (
+          <div className="bg-white rounded-2xl border-2 border-[#1769AA] p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-xs font-semibold px-2.5 py-0.5 rounded-full text-white"
+                  style={{ backgroundColor: getSeverityColor(selectedSite.severity) }}
+                >
+                  {getSeverityLabel(selectedSite.severity)}
+                </span>
+                <h2 className="text-lg font-bold text-[#102A43]">{selectedSite.customerName}</h2>
+              </div>
+              <p className="text-sm text-slate-600">{selectedSite.address}</p>
+              <div className="flex flex-wrap gap-4 text-xs text-slate-700 pt-1">
+                <span>ביקורים: <strong>{selectedSite.visits}</strong></span>
+                <span>ממוצע עצירה: <strong>{selectedSite.avgStopMin != null ? `${selectedSite.avgStopMin} דק׳` : 'לא נמדד'}</strong></span>
+                <span>מקסימום: <strong>{selectedSite.maxStopMin != null ? `${selectedSite.maxStopMin} דק׳` : 'לא נמדד'}</strong></span>
+                <span>P80: <strong>{selectedSite.p80Min != null ? `${selectedSite.p80Min} דק׳` : 'לא נמדד'}</strong></span>
+                {selectedSite.distHarashKm != null && (
+                  <span>מהחרש 10: <strong>{selectedSite.distHarashKm} ק״מ ({selectedSite.driveHarashMin ?? '—'} דק׳)</strong></span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  selectedSite.lat && selectedSite.lng ? `${selectedSite.lat},${selectedSite.lng}` : selectedSite.address
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-2 rounded-xl text-xs font-semibold bg-[#1769AA] text-white hover:bg-[#102A43] transition"
+              >
+                פתח במפות Google
+              </a>
+              <a
+                href={`https://waze.com/ul?q=${encodeURIComponent(selectedSite.address)}&navigate=yes`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-2 rounded-xl text-xs font-semibold bg-[#20A4C8] text-white hover:bg-[#1769AA] transition"
+              >
+                נווט ב־Waze
+              </a>
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
+              >
+                סגור
+              </button>
+            </div>
           </div>
         )}
 
@@ -364,14 +443,12 @@ function SitesPage() {
                       {getSeverityLabel(site.severity)}
                     </span>
                   </div>
-                  <div className="text-xs text-slate-600 mt-1">
-                    {site.address}
-                    {site.city ? `, ${site.city}` : ''}
-                  </div>
+                  <div className="text-xs text-slate-600 mt-1">{site.address}</div>
                   <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2">
                     <span>
-                      ביקורים: {site.visitsCount} · PTO: {site.ptoCount}
-                      {site.p80Minutes != null ? ` · P80: ${site.p80Minutes}ד׳` : ''}
+                      ביקורים: {site.visits}
+                      {site.p80Min != null ? ` · P80: ${site.p80Min}ד׳` : ''}
+                      {site.maxStopMin != null ? ` · מקס׳: ${site.maxStopMin}ד׳` : ''}
                     </span>
                     <span className={hasGps ? 'text-emerald-600 font-medium' : 'text-amber-600 font-medium'}>
                       {hasGps ? 'GPS תקין' : 'חסר GPS'}
