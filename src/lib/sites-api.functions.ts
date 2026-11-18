@@ -1,4 +1,4 @@
-import { createServerFn } from '@tanstack/react-start';
+import { createServerFn } from "@tanstack/react-start";
 
 export interface RawSiteRow {
   rowNumber?: number;
@@ -42,45 +42,120 @@ export interface SitesApiResponse {
   total: number;
 }
 
-export const getSitesServerFn = createServerFn({ method: 'GET' }).handler(
+/** תואם ל-notes-api ולשאר השרת: GAS_URL + API_TOKEN (עם נפילה לשמות ישנים) */
+function resolveGasConfig(): { baseUrl: string; token: string } {
+  const baseUrl = String(
+    process.env.GAS_URL ||
+      process.env.GAS_WEBAPP_URL ||
+      process.env.VITE_GAS_URL ||
+      "",
+  ).trim();
+  const token = String(
+    process.env.API_TOKEN || process.env.GAS_TOKEN || process.env.VITE_API_TOKEN || "",
+  ).trim();
+  return { baseUrl, token };
+}
+
+function gasErrorMessage(data: Record<string, unknown> | null, httpStatus?: number): string {
+  if (!data || typeof data !== "object") {
+    return httpStatus
+      ? `שגיאת שרת מרוחק: HTTP ${httpStatus}`
+      : "תשובה ריקה מ־Apps Script";
+  }
+  const err = String(data.error || data.message || "").trim();
+  const action = String(data.action || "").trim();
+  if (err === "unauthorized" || err === "Unauthorized") {
+    return "אימות נכשל מול Apps Script (API_TOKEN / Script Property). בדוק Vercel Environment Variables ו-Script Properties.";
+  }
+  if (err === "unknown_action") {
+    return `פעולה לא מוכרת ב-GAS${action ? ` (${action})` : ""} — יש להוסיף case "getSites" ב-Code.gs ולפרוס גרסה חדשה.`;
+  }
+  if (err === "missing_handler") {
+    return "חסר handler: ודא ש-SitesApi.gs קיים בפרויקט Apps Script ונפרס.";
+  }
+  if (err === "missing_tab" || err === "missing_header") {
+    return String(data.message || err);
+  }
+  if (err) return err;
+  return "מבנה נתונים לא תקין מ־Apps Script (חסר מערך sites)";
+}
+
+export const getSitesServerFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SitesApiResponse> => {
-    const baseUrl = process.env.GAS_WEBAPP_URL;
-    const token = process.env.GAS_TOKEN;
+    const { baseUrl, token } = resolveGasConfig();
 
     if (!baseUrl || !token) {
-      throw new Error('חסרים משתני סביבה בשרת: GAS_WEBAPP_URL או GAS_TOKEN');
+      throw new Error(
+        "חסרים משתני סביבה בשרת: GAS_URL ו-API_TOKEN (Preview + Production ב-Vercel)",
+      );
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
+    const timer = setTimeout(() => controller.abort(), 15000);
 
     try {
       const url = `${baseUrl}?action=getSites&token=${encodeURIComponent(token)}`;
       const res = await fetch(url, {
-        method: 'GET',
+        method: "GET",
         signal: controller.signal,
-        headers: { Accept: 'application/json' },
+        headers: { Accept: "application/json" },
+        redirect: "follow",
       });
 
-      if (!res.ok) {
-        throw new Error(`שגיאת שרת מרוחק: HTTP ${res.status}`);
+      const text = await res.text();
+      let data: Record<string, unknown> | null = null;
+      try {
+        data = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+      } catch {
+        const preview = text.slice(0, 120).replace(/\s+/g, " ");
+        throw new Error(
+          `GAS החזיר לא-JSON (HTTP ${res.status}): ${preview || "(ריק)"}`,
+        );
       }
 
-      const data = (await res.json()) as Partial<SitesApiResponse>;
-      if (!data || !Array.isArray(data.sites)) {
-        throw new Error('מבנה נתונים לא תקין מ־Apps Script');
+      if (!res.ok) {
+        throw new Error(gasErrorMessage(data, res.status));
       }
+
+      if (data && data.success === false) {
+        throw new Error(gasErrorMessage(data));
+      }
+
+      // תמיכה במעטפת { data: { sites } } אם תופיע
+      const payload =
+        data && Array.isArray(data.sites)
+          ? data
+          : data &&
+              data.data &&
+              typeof data.data === "object" &&
+              Array.isArray((data.data as Record<string, unknown>).sites)
+            ? (data.data as Record<string, unknown>)
+            : null;
+
+      if (!payload || !Array.isArray(payload.sites)) {
+        throw new Error(gasErrorMessage(data));
+      }
+
+      const sites = payload.sites as RawSiteRow[];
+      const warehouses = Array.isArray(payload.warehouses)
+        ? (payload.warehouses as WarehouseOrigin[])
+        : [];
 
       return {
-        success: Boolean(data.success ?? true),
-        sites: data.sites,
-        warehouses: Array.isArray(data.warehouses) ? data.warehouses : [],
-        fetchedAt: String(data.fetchedAt || new Date().toISOString()),
-        withGps: Number(data.withGps || 0),
-        total: Number(data.total || data.sites.length),
+        success: Boolean(payload.success ?? true),
+        sites,
+        warehouses,
+        fetchedAt: String(payload.fetchedAt || new Date().toISOString()),
+        withGps: Number(payload.withGps || 0),
+        total: Number(payload.total || sites.length),
       };
+    } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") {
+        throw new Error("פג תום הזמן בחיבור ל-Apps Script (15 שניות)");
+      }
+      throw e;
     } finally {
       clearTimeout(timer);
     }
-  }
+  },
 );
