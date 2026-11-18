@@ -11,7 +11,6 @@ import {
   CircleHelp,
   ClipboardList,
   Clock3,
-  Copy,
   Database,
   Download,
   ExternalLink,
@@ -20,6 +19,7 @@ import {
   Map,
   MapPin,
   Navigation,
+  Package,
   Plus,
   Radio,
   RefreshCw,
@@ -33,7 +33,9 @@ import {
   Warehouse,
   X,
 } from "lucide-react";
+import DeliveryPlanner from "@/components/delivery-planner";
 import { Button } from "@/components/ui/button";
+import { getPurchaseMatrixFn } from "@/lib/customer-history.functions";
 import { getSitesServerFn, type RawSiteRow } from "@/lib/sites-api.functions";
 import {
   filterSites,
@@ -55,6 +57,14 @@ const tabs = [
   { id: "planning", label: "תכנון אספקה", icon: RouteIcon },
 ] as const;
 type Tab = (typeof tabs)[number]["id"];
+
+interface CustomerPurchaseSummary {
+  customerNo: string;
+  customerName: string;
+  totalQty: number;
+  noteCount: number;
+  topProducts: { sku: string; name: string; qty: number; unit: string }[];
+}
 
 const labels = { normal: "תקין", delayed: "מעכב", critical: "קריטי", unknown: "לא מסווג" };
 const fmt = (n: number | null, unit = "") =>
@@ -127,6 +137,10 @@ function EmptyState({
 function SitesPage() {
   const [tab, setTab] = useState<Tab>("map");
   const [verifiedSites, setVerifiedSites] = useState<SiteRecord[]>([]);
+  const [purchaseByCustomer, setPurchaseByCustomer] = useState>(
+    () => new Map(),
+  );
+  const [purchaseStats, setPurchaseStats] = useState({ notes: 0, dictRows: 0, connected: false });
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
@@ -148,15 +162,93 @@ function SitesPage() {
   const loadSites = useCallback(async () => {
     setLoading(true);
     setApiError(null);
-    try {
-      const res = await getSitesServerFn();
-      setVerifiedSites(res.sites.map(mapRawSiteToRecord));
-      setFetchedAt(res.fetchedAt || new Date().toISOString());
-    } catch (err) {
-      setApiError(err instanceof Error ? err.message : "שגיאה בטעינת נתוני האתרים");
-    } finally {
-      setLoading(false);
+
+    const [sitesRes, matrixRes] = await Promise.allSettled([
+      getSitesServerFn(),
+      getPurchaseMatrixFn(),
+    ]);
+
+    if (sitesRes.status === "fulfilled") {
+      setVerifiedSites(sitesRes.value.sites.map(mapRawSiteToRecord));
+      setFetchedAt(sitesRes.value.fetchedAt || new Date().toISOString());
+    } else {
+      setApiError(
+        sitesRes.reason instanceof Error ? sitesRes.reason.message : "שגיאה בטעינת נתוני האתרים",
+      );
     }
+
+    if (matrixRes.status === "fulfilled") {
+      const matrix = matrixRes.value;
+      const lines = matrix?.lines || [];
+      const dictBySku = new Map<string, (typeof matrix.dictItems)[0]>();
+      for (const d of matrix?.dictItems || []) {
+        if (d.sku) dictBySku.set(d.sku, d);
+      }
+
+      const acc = new Map<
+        string,
+        {
+          customerNo: string;
+          customerName: string;
+          totalQty: number;
+          notes: Set<string>;
+          products: Map<string, { name: string; qty: number; unit: string }>;
+        }
+      >();
+
+      for (const line of lines) {
+        const cno = String(line.customerNo || "").trim();
+        if (!cno) continue;
+        let entry = acc.get(cno);
+        if (!entry) {
+          entry = {
+            customerNo: cno,
+            customerName: line.customerName || cno,
+            totalQty: 0,
+            notes: new Set(),
+            products: new Map(),
+          };
+          acc.set(cno, entry);
+        }
+        if (line.customerName) entry.customerName = line.customerName;
+        const qty = Number(line.qty) || 0;
+        entry.totalQty += qty;
+        if (line.noteId) entry.notes.add(line.noteId);
+
+        const pk = line.sku || line.name;
+        if (!pk) continue;
+        const d = line.sku ? dictBySku.get(line.sku) : undefined;
+        const prev = entry.products.get(pk) || {
+          name: d?.name || line.name || pk,
+          qty: 0,
+          unit: line.unit || d?.unit || "",
+        };
+        prev.qty += qty;
+        entry.products.set(pk, prev);
+      }
+
+      const finalMap = new Map<string, CustomerPurchaseSummary>();
+      for (const [cno, val] of acc) {
+        finalMap.set(cno, {
+          customerNo: val.customerNo,
+          customerName: val.customerName,
+          totalQty: Math.round(val.totalQty * 10) / 10,
+          noteCount: val.notes.size,
+          topProducts: Array.from(val.products.entries())
+            .map(([sku, p]) => ({ sku, ...p, qty: Math.round(p.qty * 10) / 10 }))
+            .sort((a, b) => b.qty - a.qty),
+        });
+      }
+
+      setPurchaseByCustomer(finalMap);
+      setPurchaseStats({
+        notes: matrix?.noteCount || 0,
+        dictRows: matrix?.dictRows || 0,
+        connected: true,
+      });
+    }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -184,10 +276,9 @@ function SitesPage() {
   );
 
   const selected = verifiedSites.find((s) => s.id === selectedId);
-  const planned = plannedIds.flatMap((id) => {
-    const site = verifiedSites.find((s) => s.id === id);
-    return site ? [site] : [];
-  });
+  const selectedPurchase = selected?.customerCode
+    ? purchaseByCustomer.get(selected.customerCode)
+    : undefined;
 
   const togglePlan = (id: string) =>
     setPlannedIds((ids) => (ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]));
@@ -220,16 +311,93 @@ function SitesPage() {
     URL.revokeObjectURL(url);
   };
 
-  const copyPlan = async () => {
-    try {
-      await navigator.clipboard.writeText(
-        `סבב אספקה · ${warehouses.find((w) => w.id === origin)?.name}\n${planned.map((s, i) => `${i + 1}. ${s.customer} — ${s.address}`).join("\n")}`,
-      );
-      setNotice("סבב האספקה הועתק");
-    } catch {
-      setNotice("לא ניתן להעתיק. יש לאפשר גישה ללוח ההעתקה.");
-    }
-  };
+  const selectedProfileBlock = selected ? (
+    <section className="selected-profile">
+      <div className="section-header">
+        <div>
+          <MapPin />
+          <h2>{selected.customer}</h2>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="סגור פרטי אתר"
+          onClick={() => setSelectedId(null)}
+        >
+          <X />
+        </Button>
+      </div>
+      <p>
+        {selected.address} · {selected.city}
+      </p>
+      <div className="profile-stats">
+        <span>
+          ביקורים <strong>{fmt(selected.visits)}</strong>
+        </span>
+        <span>
+          ממוצע <strong>{fmt(selected.avgStopMin, " דק׳")}</strong>
+        </span>
+        <span>
+          מקסימום <strong>{fmt(selected.maxStopMin, " דק׳")}</strong>
+        </span>
+        <span>
+          P80 <strong>{fmt(selected.p80Min, " דק׳")}</strong>
+        </span>
+        <span>
+          {validCoordinates(selected.lat, selected.lng) ? "GPS תקין" : "GPS חסר או לא תקין"}
+        </span>
+      </div>
+      {selectedPurchase && selectedPurchase.topProducts.length > 0 && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs space-y-1.5">
+          <div className="font-bold text-[#15324B] flex items-center gap-1.5">
+            <Package size={14} /> רכש מאומת בארכיון ({selectedPurchase.noteCount} תעודות ·{" "}
+            {selectedPurchase.totalQty} יח׳):
+          </div>
+          <div className="grid gap-1 sm:grid-cols-2">
+            {selectedPurchase.topProducts.slice(0, 6).map((pr) => (
+              <div
+                key={pr.sku}
+                className="flex justify-between gap-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200"
+              >
+                <span className="truncate">
+                  <span className="font-mono text-slate-500">{pr.sku}</span> {pr.name}
+                </span>
+                <span className="font-bold shrink-0">
+                  {pr.qty} {pr.unit}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="profile-actions">
+        <Button onClick={() => togglePlan(selected.id)}>
+          {plannedIds.includes(selected.id) ? <Check /> : <Plus />}
+          {plannedIds.includes(selected.id) ? "הסר מהסבב" : "הוסף לסבב"}
+        </Button>
+        <Button variant="outline" asChild>
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(validCoordinates(selected.lat, selected.lng) ? `${selected.lat},${selected.lng}` : `${selected.address} ${selected.city}`)}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <ExternalLink />
+            Google Maps
+          </a>
+        </Button>
+        <Button variant="outline" asChild>
+          <a
+            href={`https://waze.com/ul?${validCoordinates(selected.lat, selected.lng) ? `ll=${selected.lat},${selected.lng}` : `q=${encodeURIComponent(`${selected.address} ${selected.city}`)}`}&navigate=yes`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Navigation />
+            Waze
+          </a>
+        </Button>
+      </div>
+    </section>
+  ) : null;
 
   return (
     <div className="app-shell">
@@ -319,7 +487,7 @@ function SitesPage() {
                 <h1>מודיעין אתרים</h1>
                 <span className="page-badge">מרכז בקרה</span>
               </div>
-              <p>תמונת מצב תפעולית · אתרים, זמני פריקה ותכנון אספקה</p>
+              <p>נתונים חיים מאומתים · אתרי לקוחות, ארכיון_תעודות_גליה ומילון_לוגיסט</p>
             </div>
             <div className="heading-actions">
               <Button variant="outline" onClick={exportRows} disabled={!sites.length}>
@@ -344,7 +512,7 @@ function SitesPage() {
               </div>
               <div>
                 <strong>
-                  {loading ? "טוען נתוני אתרים חיים..." : "שגיאה בחיבור למקור הנתונים"}
+                  {loading ? "טוען נתוני אתרים ורכש חיים..." : "שגיאה בחיבור למקור הנתונים"}
                 </strong>
                 <span>
                   {loading
@@ -555,108 +723,111 @@ function SitesPage() {
             className="tab-panel"
           >
             {tab === "map" && (
-              <section className="map-workspace">
-                <div className="map-section">
-                  <div className="section-header">
-                    <div>
-                      <h2>מפת אתרים ומחסנים</h2>
+              <>
+                <section className="map-workspace">
+                  <div className="map-section">
+                    <div className="section-header">
+                      <div>
+                        <h2>מפת אתרים ומחסנים</h2>
+                      </div>
+                      <span className="section-subtitle">מחסני ח. סבן</span>
                     </div>
-                    <span className="section-subtitle">מחסני ח. סבן</span>
-                  </div>
-                  <Suspense fallback={<div className="map-frame map-loading">טוען מפה…</div>}>
-                    <SiteMap
-                      sites={sites}
-                      selectedId={selectedId}
-                      onSelect={select}
-                      delayed={delayed}
-                      critical={critical}
-                      origin={origin}
-                    />
-                  </Suspense>
-                  <div className="map-legend">
-                    <span>
-                      <span className="legend-warehouse">
-                        <Warehouse size={13} />
+                    <Suspense fallback={<div className="map-frame map-loading">טוען מפה…</div>}>
+                      <SiteMap
+                        sites={sites}
+                        selectedId={selectedId}
+                        onSelect={select}
+                        delayed={delayed}
+                        critical={critical}
+                        origin={origin}
+                      />
+                    </Suspense>
+                    <div className="map-legend">
+                      <span>
+                        <span className="legend-warehouse">
+                          <Warehouse size={13} />
+                        </span>
+                        מחסן
                       </span>
-                      מחסן
-                    </span>
-                    <span>
-                      <i className="status-dot dot-normal" />
-                      תקין
-                    </span>
-                    <span>
-                      <i className="status-dot dot-delayed" />
-                      מעכב
-                    </span>
-                    <span>
-                      <i className="status-dot dot-critical" />
-                      קריטי
-                    </span>
-                    <span className="map-provider">OpenStreetMap</span>
-                  </div>
-                </div>
-                <div className="site-list">
-                  <div className="section-header">
-                    <div>
-                      <ClipboardList size={17} />
-                      <h2>רשימת אתרים</h2>
+                      <span>
+                        <i className="status-dot dot-normal" />
+                        תקין
+                      </span>
+                      <span>
+                        <i className="status-dot dot-delayed" />
+                        מעכב
+                      </span>
+                      <span>
+                        <i className="status-dot dot-critical" />
+                        קריטי
+                      </span>
+                      <span className="map-provider">OpenStreetMap</span>
                     </div>
-                    <span className="count-badge">{sites.length}</span>
                   </div>
-                  <div className="list-status">
-                    <span>
-                      {filter === "all"
-                        ? "כל האתרים"
-                        : filter === "missing_gps"
-                          ? "ללא GPS"
-                          : labels[filter]}
-                    </span>
-                    <span>
-                      {loading ? "טוען..." : apiError ? "שגיאת חיבור" : "מחובר בזמן אמת"}
-                    </span>
-                  </div>
-                  {sites.length ? (
-                    <div className="site-items">
-                      {sites.map((site) => (
-                        <Button
-                          variant="kpi"
-                          className="site-item"
-                          key={site.id}
-                          data-active={site.id === selectedId}
-                          onClick={() => select(site.id)}
-                        >
-                          <div>
-                            <strong>{site.customer}</strong>
-                            <span>{site.address}</span>
-                          </div>
-                          <span
-                            className={`severity-badge severity-${severity(site.p80Min, delayed, critical)}`}
+                  <div className="site-list">
+                    <div className="section-header">
+                      <div>
+                        <ClipboardList size={17} />
+                        <h2>רשימת אתרים</h2>
+                      </div>
+                      <span className="count-badge">{sites.length}</span>
+                    </div>
+                    <div className="list-status">
+                      <span>
+                        {filter === "all"
+                          ? "כל האתרים"
+                          : filter === "missing_gps"
+                            ? "ללא GPS"
+                            : labels[filter]}
+                      </span>
+                      <span>
+                        {loading ? "טוען..." : apiError ? "שגיאת חיבור" : "מחובר בזמן אמת"}
+                      </span>
+                    </div>
+                    {sites.length ? (
+                      <div className="site-items">
+                        {sites.map((site) => (
+                          <Button
+                            variant="kpi"
+                            className="site-item"
+                            key={site.id}
+                            data-active={site.id === selectedId}
+                            onClick={() => select(site.id)}
                           >
-                            {labels[severity(site.p80Min, delayed, critical)]}
-                          </span>
-                          <div className="site-item-meta">
-                            {fmt(site.visits)} ביקורים · P80 {fmt(site.p80Min, " דק׳")}
-                          </div>
-                        </Button>
-                      ))}
+                            <div>
+                              <strong>{site.customer}</strong>
+                              <span>{site.address}</span>
+                            </div>
+                            <span
+                              className={`severity-badge severity-${severity(site.p80Min, delayed, critical)}`}
+                            >
+                              {labels[severity(site.p80Min, delayed, critical)]}
+                            </span>
+                            <div className="site-item-meta">
+                              {fmt(site.visits)} ביקורים · P80 {fmt(site.p80Min, " דק׳")}
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyState
+                        icon={MapPin}
+                        title={loading ? "טוען אתרים..." : "אין אתרים להצגה"}
+                        text={
+                          loading
+                            ? "מייבא נתונים מהגיליון."
+                            : "נסה לשנות את מסנני החיפוש או לרענן את הנתונים."
+                        }
+                      />
+                    )}
+                    <div className="list-footer">
+                      <Database size={14} />
+                      <span>נתונים מאומתים מ־Google Sheets</span>
                     </div>
-                  ) : (
-                    <EmptyState
-                      icon={MapPin}
-                      title={loading ? "טוען אתרים..." : "אין אתרים להצגה"}
-                      text={
-                        loading
-                          ? "מייבא נתונים מהגיליון."
-                          : "נסה לשנות את מסנני החיפוש או לרענן את הנתונים."
-                      }
-                    />
-                  )}
-                  <div className="list-footer">
-                    <Database size={14} />
-                    <span>נתונים מאומתים מ־Google Sheets</span>
                   </div>
-                </div>
-              </section>
+                </section>
+                {selectedProfileBlock}
+              </>
             )}
             {tab === "analytics" && (
               <section className="data-section">
@@ -766,18 +937,45 @@ function SitesPage() {
                     <Users size={18} />
                     <h2>לקוחות ואתרים משויכים</h2>
                   </div>
-                  <span className="section-subtitle">פרופיל לקוח</span>
+                  <span className="section-subtitle">
+                    {purchaseStats.connected
+                      ? "מחובר לארכיון_תעודות_גליה ומילון_לוגיסט"
+                      : "פרופיל לקוח"}
+                  </span>
                 </div>
                 {sites.length ? (
                   <div className="customer-grid">
                     {Array.from(new Set(sites.map((s) => s.customerCode || s.customer))).map(
                       (key) => {
                         const group = sites.filter((s) => (s.customerCode || s.customer) === key);
+                        const purchase = group[0]?.customerCode
+                          ? purchaseByCustomer.get(group[0].customerCode)
+                          : undefined;
                         return (
                           <article className="customer-item" key={key}>
                             <Users />
                             <h3>{group[0]?.customer}</h3>
-                            <span>{group.length} אתרים</span>
+                            <span>
+                              {group.length} אתרים
+                              {purchase
+                                ? ` · ${purchase.noteCount} תעודות · ${purchase.totalQty} יח׳`
+                                : ""}
+                            </span>
+                            {purchase && purchase.topProducts.length > 0 && (
+                              <div className="text-xs text-slate-600 space-y-0.5 py-1 border-t border-slate-100 w-full">
+                                <div className="font-semibold flex items-center gap-1 text-[#15324B]">
+                                  <Package size={12} /> מק״טים מובילים:
+                                </div>
+                                {purchase.topProducts.slice(0, 3).map((pr) => (
+                                  <div key={pr.sku} className="flex justify-between gap-2">
+                                    <span className="truncate">
+                                      {pr.sku} · {pr.name}
+                                    </span>
+                                    <span className="font-mono shrink-0">{pr.qty}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                             {group.map((s) => (
                               <Button
                                 key={s.id}
@@ -805,7 +1003,9 @@ function SitesPage() {
                 )}
                 <div className="data-footnote">
                   <ShieldCheck size={15} />
-                  היסטוריית רכישות ואספקות אינה מחוברת
+                  {purchaseStats.connected
+                    ? `נתוני רכש חיים (${purchaseStats.notes} תעודות · ${purchaseStats.dictRows} פריטי מילון_לוגיסט)`
+                    : "היסטוריית רכישות ואספקות בתהליך טעינה"}
                 </div>
               </section>
             )}
@@ -814,117 +1014,23 @@ function SitesPage() {
                 <div className="section-header">
                   <div>
                     <RouteIcon size={18} />
-                    <h2>סבב אספקה</h2>
-                    <span className="count-badge">{planned.length}</span>
+                    <h2>סבב אספקה ואופטימיזציית העמסה</h2>
+                    <span className="count-badge">{plannedIds.length}</span>
                   </div>
-                  <Button variant="outline" disabled={!planned.length} onClick={copyPlan}>
-                    <Copy />
-                    העתק סבב
-                  </Button>
                 </div>
-                <div className="planning-origin">
-                  <Warehouse size={19} />
-                  <span>מחסן מוצא</span>
-                  <strong>{warehouses.find((w) => w.id === origin)?.name}</strong>
-                </div>
-                {planned.length ? (
-                  <ol className="plan-list">
-                    {planned.map((s, i) => (
-                      <li key={s.id}>
-                        <span className="plan-index">{i + 1}</span>
-                        <div>
-                          <strong>{s.customer}</strong>
-                          <p>{s.address}</p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`הסר ${s.customer} מהסבב`}
-                          onClick={() => togglePlan(s.id)}
-                        >
-                          <X />
-                        </Button>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <EmptyState
-                    icon={RouteIcon}
-                    title="לא נבחרו אתרים לסבב"
-                    text="בחר אתר מהמפה או מהרשימה ולחץ על 'הוסף לסבב'."
-                  />
-                )}
-                <div className="data-footnote">
-                  <ShieldCheck size={15} />
-                  סדר תחנות ידני · ללא אופטימיזציה או זמני נסיעה משוערים
-                </div>
+                <DeliveryPlanner
+                  allSites={verifiedSites}
+                  plannedIds={plannedIds}
+                  origin={origin}
+                  onChangeOrder={setPlannedIds}
+                  onRemove={togglePlan}
+                  onAdd={(id) => setPlannedIds((prev) => (prev.includes(id) ? prev : [...prev, id]))}
+                  onNotify={setNotice}
+                />
               </section>
             )}
           </div>
-          {selected && (
-            <section className="selected-profile">
-              <div className="section-header">
-                <div>
-                  <MapPin />
-                  <h2>{selected.customer}</h2>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="סגור פרטי אתר"
-                  onClick={() => setSelectedId(null)}
-                >
-                  <X />
-                </Button>
-              </div>
-              <p>
-                {selected.address} · {selected.city}
-              </p>
-              <div className="profile-stats">
-                <span>
-                  ביקורים <strong>{fmt(selected.visits)}</strong>
-                </span>
-                <span>
-                  ממוצע <strong>{fmt(selected.avgStopMin, " דק׳")}</strong>
-                </span>
-                <span>
-                  מקסימום <strong>{fmt(selected.maxStopMin, " דק׳")}</strong>
-                </span>
-                <span>
-                  P80 <strong>{fmt(selected.p80Min, " דק׳")}</strong>
-                </span>
-                <span>
-                  {validCoordinates(selected.lat, selected.lng) ? "GPS תקין" : "GPS חסר או לא תקין"}
-                </span>
-              </div>
-              <div className="profile-actions">
-                <Button onClick={() => togglePlan(selected.id)}>
-                  {plannedIds.includes(selected.id) ? <Check /> : <Plus />}
-                  {plannedIds.includes(selected.id) ? "הסר מהסבב" : "הוסף לסבב"}
-                </Button>
-                <Button variant="outline" asChild>
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(validCoordinates(selected.lat, selected.lng) ? `${selected.lat},${selected.lng}` : `${selected.address} ${selected.city}`)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <ExternalLink />
-                    Google Maps
-                  </a>
-                </Button>
-                <Button variant="outline" asChild>
-                  <a
-                    href={`https://waze.com/ul?${validCoordinates(selected.lat, selected.lng) ? `ll=${selected.lat},${selected.lng}` : `q=${encodeURIComponent(`${selected.address} ${selected.city}`)}`}&navigate=yes`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <Navigation />
-                    Waze
-                  </a>
-                </Button>
-              </div>
-            </section>
-          )}
+          {tab !== "map" && selectedProfileBlock}
           {(query || filter !== "all") && (
             <div className="reset-row">
               <span>מסננים פעילים</span>
@@ -938,7 +1044,9 @@ function SitesPage() {
             <span>ח. סבן חומרי בניין (1994) בע״מ</span>
             <span>
               <span className="offline-dot" />
-              {apiError ? "שגיאת חיבור" : "מחובר ל־Google Apps Script"}
+              {apiError
+                ? "שגיאת חיבור"
+                : "מחובר: אתרי_לקוחות · ארכיון_תעודות_גליה · מילון_לוגיסט"}
             </span>
           </footer>
         </main>
@@ -1064,16 +1172,16 @@ function SitesPage() {
                 <span className="offline-dot" />
                 {loading ? "טוען..." : apiError ? "שגיאה" : "מחובר"}
               </span>
-              <h3>Google Apps Script (Server Proxy)</h3>
+              <h3>מקורות חיים מאומתים</h3>
               <p>
                 {apiError
                   ? apiError
-                  : `טעונים ${kpis.total} אתרים (${kpis.withGps} עם GPS תקין). עדכון אחרון: ${fetchedAt ? new Date(fetchedAt).toLocaleString("he-IL") : "—"}`}
+                  : `אתרים: ${kpis.total} (${kpis.withGps} עם GPS) · רכש מאומת: ${purchaseStats.notes} תעודות · ${purchaseStats.dictRows} מק״טים במילון_לוגיסט. עדכון: ${fetchedAt ? new Date(fetchedAt).toLocaleString("he-IL") : "—"}`}
               </p>
               <div className="source-requirements">
                 <ShieldCheck />
                 <span>
-                  הקריאה מתבצעת מצד השרת דרך getSitesServerFn ללא חשיפת מפתחות בדפדפן.
+                  הקריאות מתבצעת מצד השרת דרך getSitesServerFn ו־getPurchaseMatrixFn ללא חשיפת מפתחות בדפדפן.
                 </span>
               </div>
               <Button className="w-full" onClick={loadSites} disabled={loading}>
