@@ -66,6 +66,8 @@ interface CustomerPurchaseSummary {
   topProducts: { sku: string; name: string; qty: number; unit: string }[];
 }
 
+type PurchaseMap = Record<string, CustomerPurchaseSummary>;
+
 const labels = { normal: "תקין", delayed: "מעכב", critical: "קריטי", unknown: "לא מסווג" };
 const fmt = (n: number | null, unit = "") =>
   n === null ? "—" : `${n.toLocaleString("he-IL")}${unit}`;
@@ -137,9 +139,7 @@ function EmptyState({
 function SitesPage() {
   const [tab, setTab] = useState<Tab>("map");
   const [verifiedSites, setVerifiedSites] = useState<SiteRecord[]>([]);
-  const [purchaseByCustomer, setPurchaseByCustomer] = useState>(
-    () => new Map(),
-  );
+  const [purchaseByCustomer, setPurchaseByCustomer] = useState<PurchaseMap>({});
   const [purchaseStats, setPurchaseStats] = useState({ notes: 0, dictRows: 0, connected: false });
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -227,9 +227,9 @@ function SitesPage() {
         entry.products.set(pk, prev);
       }
 
-      const finalMap = new Map<string, CustomerPurchaseSummary>();
+      const finalMap: PurchaseMap = {};
       for (const [cno, val] of acc) {
-        finalMap.set(cno, {
+        finalMap[cno] = {
           customerNo: val.customerNo,
           customerName: val.customerName,
           totalQty: Math.round(val.totalQty * 10) / 10,
@@ -237,7 +237,7 @@ function SitesPage() {
           topProducts: Array.from(val.products.entries())
             .map(([sku, p]) => ({ sku, ...p, qty: Math.round(p.qty * 10) / 10 }))
             .sort((a, b) => b.qty - a.qty),
-        });
+        };
       }
 
       setPurchaseByCustomer(finalMap);
@@ -277,7 +277,7 @@ function SitesPage() {
 
   const selected = verifiedSites.find((s) => s.id === selectedId);
   const selectedPurchase = selected?.customerCode
-    ? purchaseByCustomer.get(selected.customerCode)
+    ? purchaseByCustomer[selected.customerCode]
     : undefined;
 
   const togglePlan = (id: string) =>
@@ -949,7 +949,7 @@ function SitesPage() {
                       (key) => {
                         const group = sites.filter((s) => (s.customerCode || s.customer) === key);
                         const purchase = group[0]?.customerCode
-                          ? purchaseByCustomer.get(group[0].customerCode)
+                          ? purchaseByCustomer[group[0].customerCode]
                           : undefined;
                         return (
                           <article className="customer-item" key={key}>
@@ -1181,7 +1181,7 @@ function SitesPage() {
               <div className="source-requirements">
                 <ShieldCheck />
                 <span>
-                  הקריאות מתבצעת מצד השרת דרך getSitesServerFn ו־getPurchaseMatrixFn ללא חשיפת מפתחות בדפדפן.
+                  הקריאות מתבצעות מצד השרת דרך getSitesServerFn ו־getPurchaseMatrixFn ללא חשיפת מפתחות בדפדפן.
                 </span>
               </div>
               <Button className="w-full" onClick={loadSites} disabled={loading}>
