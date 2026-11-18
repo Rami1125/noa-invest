@@ -16,7 +16,7 @@ import {
   ExternalLink,
   Filter as FilterIcon,
   LocateFixed,
-  Map,
+  Map as MapIcon,
   MapPin,
   Navigation,
   Package,
