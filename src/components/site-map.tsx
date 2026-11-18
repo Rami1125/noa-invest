@@ -67,7 +67,7 @@ export default function SiteMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const layerRef = useRef<any>(null);
-  const markersByIdRef = useRef>(new Map());
+  const markersByIdRef = useRef<Record<string, any>>({});
   const [ready, setReady] = useState(false);
 
   const selectedSite = useMemo(
@@ -105,13 +105,12 @@ export default function SiteMap({
     const L = (window as any).L;
     const map = mapRef.current;
     const layer = layerRef.current;
-    if (!ready || !L || !map || !layer) return;
+    if (!ready || !L || !map || !layer || typeof layer.clearLayers !== "function") return;
 
     layer.clearLayers();
-    markersByIdRef.current.clear();
+    markersByIdRef.current = {};
     const bounds = L.latLngBounds([]);
 
-    // סיכות מחסנים מדויקות
     warehouses.forEach((w) => {
       if (!validCoordinates(w.lat, w.lng)) return;
       const isOrigin = w.id === origin;
@@ -127,7 +126,6 @@ export default function SiteMap({
       bounds.extend([w.lat, w.lng]);
     });
 
-    // סיכות לקוחות לחיצות
     sites.forEach((site) => {
       if (!validCoordinates(site.lat, site.lng)) return;
       const isSelected = site.id === selectedId;
@@ -150,7 +148,7 @@ export default function SiteMap({
 
       marker.on("click", () => onSelect(site.id));
       marker.addTo(layer);
-      markersByIdRef.current.set(site.id, marker);
+      markersByIdRef.current[site.id] = marker;
       bounds.extend([site.lat, site.lng]);
     });
 
@@ -159,13 +157,12 @@ export default function SiteMap({
     }
   }, [ready, sites, selectedId, delayed, critical, origin, warehouses, onSelect]);
 
-  // Zoom אוטומטי לכתובת כשלוחצים על כרטיס לקוח
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !selectedSite) return;
     if (validCoordinates(selectedSite.lat, selectedSite.lng)) {
       map.flyTo([selectedSite.lat, selectedSite.lng], 16, { duration: 0.65 });
-      const marker = markersByIdRef.current.get(selectedSite.id);
+      const marker = markersByIdRef.current[selectedSite.id];
       if (marker) setTimeout(() => marker.openPopup(), 350);
     }
   }, [ready, selectedSite]);
@@ -175,7 +172,7 @@ export default function SiteMap({
       <div ref={containerRef} className="map-frame min-h-[480px] w-full rounded-xl overflow-hidden" />
       {selectedSite && !validCoordinates(selectedSite.lat, selectedSite.lng) && (
         <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
-          לאתר <strong>{selectedSite.customer}</strong> ({selectedSite.address}) עדיין אין קואורדינטות GPS שמורות — הרץ <code>geocodeMissingSites()</code> בגיליון כדי למקם סיכה ולבצע Zoom.
+          לאתר <strong>{selectedSite.customer}</strong> ({selectedSite.address}) עדיין אין קואורדינטות GPS שמורות — הרץ <code>enrichSitesDistanceAndGps()</code> בגיליון כדי למקם סיכה ולבצע Zoom.
         </div>
       )}
     </div>
