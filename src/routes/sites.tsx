@@ -24,7 +24,7 @@ const GAS_SITES_URL =
   import.meta.env.VITE_GAS_WEBAPP_URL ||
   'https://script.google.com/macros/s/AKfycbzuFyKoO4dw3U3KyYK5AEAVeSe87PXJ9wr-evBlB6NgufDe4YM7Qi0U00ACIgPYXM55Ig/exec';
 
-const GAS_TOKEN = import.meta.env.VITE_GAS_TOKEN || 'rami_1a084c2a6b9ed55a';
+const GAS_TOKEN = import.meta.env.GAS_TOKEN || 'rami_1a084c2a6b9ed55a';
 
 const WAREHOUSES = [
   { id: 'wh-haharash', name: 'מחסן החרש 10', lat: 32.1508, lng: 34.8926 },
