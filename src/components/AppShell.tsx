@@ -23,8 +23,9 @@ import {
   GraduationCap,
   Warehouse,
   Boxes,
+  PanelRightOpen,
 } from "lucide-react";
-import { type ReactNode, useState, useEffect, useRef } from "react";
+import { type ReactNode, useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, Link } from "@tanstack/react-router";
 import noa from "@/assets/noa.jpg";
 import { PWAInstallButton } from "./PWAInstallButton";
@@ -75,10 +76,114 @@ const MOBILE_NAV = [
 
 const MOBILE_MORE = DESKTOP_NAV.filter((d) => !MOBILE_NAV.some((m) => m.to === d.to));
 
+/** זמן חוסר פעילות עד הסתרת תפריט (מס״ש) */
+const NAV_IDLE_MS = 2800;
+const EDGE_PX = 28;
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const { theme, toggleTheme } = useTheme();
   const [moreOpen, setMoreOpen] = useState(false);
+
+  const [sideOpen, setSideOpen] = useState(true);
+  const [bottomOpen, setBottomOpen] = useState(true);
+
+  const sideOpenRef = useRef(true);
+  const bottomOpenRef = useRef(true);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const asideRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    sideOpenRef.current = sideOpen;
+  }, [sideOpen]);
+  useEffect(() => {
+    bottomOpenRef.current = bottomOpen;
+  }, [bottomOpen]);
+
+  const clearIdle = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleHide = useCallback(() => {
+    clearIdle();
+    idleTimerRef.current = setTimeout(() => {
+      setSideOpen(false);
+      setBottomOpen(false);
+    }, NAV_IDLE_MS);
+  }, [clearIdle]);
+
+  useEffect(() => {
+    scheduleHide();
+
+    const isTouch = () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(hover: none), (pointer: coarse)").matches;
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (isTouch()) return;
+      const nearEdge = e.clientX <= EDGE_PX || e.clientX >= window.innerWidth - EDGE_PX;
+      let overAside = false;
+      if (asideRef.current) {
+        const r = asideRef.current.getBoundingClientRect();
+        overAside =
+          e.clientX >= r.left &&
+          e.clientX <= r.right &&
+          e.clientY >= r.top &&
+          e.clientY <= r.bottom;
+      }
+      if (nearEdge || overAside) {
+        setSideOpen(true);
+        scheduleHide();
+      } else if (sideOpenRef.current) {
+        scheduleHide();
+      }
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      const nearBottom = t.clientY >= window.innerHeight - 64;
+      const nearSide = t.clientX <= EDGE_PX || t.clientX >= window.innerWidth - EDGE_PX;
+      if (nearBottom || nearSide || !bottomOpenRef.current) {
+        setBottomOpen(true);
+        setSideOpen(true);
+        scheduleHide();
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSideOpen(false);
+        setBottomOpen(false);
+        return;
+      }
+      if (e.altKey && (e.key === "m" || e.key === "M" || e.key === "מ")) {
+        e.preventDefault();
+        setSideOpen((v) => !v);
+        setBottomOpen((v) => !v);
+      }
+    };
+
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      clearIdle();
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [scheduleHide, clearIdle]);
+
+  useEffect(() => {
+    setSideOpen(true);
+    setBottomOpen(true);
+    scheduleHide();
+  }, [pathname, scheduleHide]);
 
   const active = (to: string) => {
     if (to === "/") return pathname === "/" || pathname === "";
@@ -106,6 +211,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, []);
 
+  const navItemClass = (isCurrent: boolean) =>
+    `group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition-all duration-200 ease-out active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 ${
+      isCurrent
+        ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm ring-1 ring-sidebar-border/60"
+        : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+    }`;
+
   return (
     <div className="flex min-h-dvh bg-background">
       <a
@@ -114,7 +226,39 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         דלג לתוכן
       </a>
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex flex-col justify-between border-l border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex">
+
+      <button
+        type="button"
+        aria-label="הצג תפריט ניווט"
+        aria-expanded={sideOpen}
+        onClick={() => {
+          setSideOpen(true);
+          scheduleHide();
+        }}
+        onMouseEnter={() => {
+          setSideOpen(true);
+          scheduleHide();
+        }}
+        className={`fixed top-1/2 z-50 hidden h-24 w-3 -translate-y-1/2 rounded-l-full bg-primary/80 shadow-md transition-all duration-300 hover:w-4 hover:bg-primary lg:block motion-reduce:transition-none ${
+          sideOpen ? "pointer-events-none opacity-0" : "opacity-100"
+        }`}
+        style={{ insetInlineStart: 0 }}
+      />
+
+      <aside
+        ref={asideRef as React.RefObject<HTMLElement>}
+        onMouseEnter={() => {
+          setSideOpen(true);
+          clearIdle();
+        }}
+        onMouseLeave={() => scheduleHide()}
+        aria-hidden={!sideOpen}
+        className={`sticky top-0 z-40 hidden h-dvh w-60 shrink-0 flex-col justify-between border-l border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[0_0_24px_rgba(16,42,67,0.08)] transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:flex ${
+          sideOpen
+            ? "translate-x-0 opacity-100"
+            : "pointer-events-none -translate-x-[110%] opacity-0"
+        }`}
+      >
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-thin">
           <div className="flex items-center gap-3 border-b border-sidebar-border/40 px-5 py-5">
             <div className="relative">
@@ -135,7 +279,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
 
-          <nav className="flex flex-col gap-1 px-3 py-4">
+          <nav className="flex flex-col gap-1 px-3 py-4" aria-label="ניווט ראשי">
             {DESKTOP_NAV.map(({ to, label, icon: I }) => {
               const isCurrent = active(to);
               return (
@@ -143,13 +287,17 @@ export function AppShell({ children }: { children: ReactNode }) {
                   key={to}
                   to={to}
                   aria-current={isCurrent ? "page" : undefined}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition ${
-                    isCurrent
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
-                  }`}
+                  onClick={() => {
+                    triggerHaptic();
+                    scheduleHide();
+                  }}
+                  className={navItemClass(isCurrent)}
                 >
-                  <I className="h-4.5 w-4.5 shrink-0" />
+                  <I
+                    className={`h-4.5 w-4.5 shrink-0 transition-transform duration-200 group-active:scale-90 motion-reduce:transition-none ${
+                      isCurrent ? "stroke-[2.5]" : ""
+                    }`}
+                  />
                   <span className="leading-tight">{label}</span>
                 </Link>
               );
@@ -160,8 +308,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="space-y-2 border-t border-sidebar-border/40 p-3">
           <button
             type="button"
-            onClick={toggleTheme}
-            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-sidebar-foreground/80 hover:bg-sidebar-accent/60"
+            onClick={() => {
+              triggerHaptic();
+              toggleTheme();
+            }}
+            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-sidebar-foreground/80 transition-all duration-200 hover:bg-sidebar-accent/60 active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
           >
             {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
             {theme === "light" ? "מצב כהה" : "מצב בהיר"}
@@ -170,14 +321,42 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 pb-nav outline-none lg:pb-6">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="min-w-0 flex-1 pb-nav outline-none lg:pb-6"
+        onMouseMove={() => {
+          if (sideOpenRef.current) scheduleHide();
+        }}
+      >
         <GasConnectionBanner />
         {children}
       </main>
 
+      <button
+        type="button"
+        aria-label="הצג ניווט"
+        onClick={() => {
+          triggerHaptic();
+          setBottomOpen(true);
+          scheduleHide();
+        }}
+        className={`glass fixed bottom-3 left-1/2 z-40 flex h-11 w-11 -translate-x-1/2 items-center justify-center rounded-full border border-border/70 shadow-lg transition-all duration-300 active:scale-95 lg:hidden motion-reduce:transition-none ${
+          bottomOpen ? "pointer-events-none translate-y-16 opacity-0" : "translate-y-0 opacity-100"
+        }`}
+      >
+        <PanelRightOpen className="h-5 w-5 text-primary" />
+      </button>
+
       <nav
         aria-label="ניווט מובייל"
-        className="glass fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border/70 pb-safe shadow-lg lg:hidden"
+        onTouchStart={() => {
+          setBottomOpen(true);
+          clearIdle();
+        }}
+        className={`glass fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border/70 pb-safe shadow-lg transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:hidden ${
+          bottomOpen ? "translate-y-0" : "translate-y-full"
+        }`}
       >
         {MOBILE_NAV.map(({ to, label, icon: I }) => {
           const isCurrent = active(to);
@@ -185,14 +364,24 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link
               key={to}
               to={to}
-              onClick={triggerHaptic}
+              onClick={() => {
+                triggerHaptic();
+                scheduleHide();
+              }}
               aria-current={isCurrent ? "page" : undefined}
-              className={`hit flex flex-col items-center justify-center gap-1 pb-1.5 pt-2 text-xs font-bold transition active:scale-95 motion-reduce:active:scale-100 ${
+              className={`hit relative flex flex-col items-center justify-center gap-1 pb-1.5 pt-2 text-xs font-bold transition-all duration-200 active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100 ${
                 isCurrent ? "text-primary" : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <I className={`h-5.5 w-5.5 ${isCurrent ? "stroke-[2.5]" : "stroke-2"}`} />
+              <I
+                className={`h-5.5 w-5.5 transition-transform duration-200 ${
+                  isCurrent ? "stroke-[2.5] scale-105" : "stroke-2"
+                }`}
+              />
               <span>{label}</span>
+              {isCurrent && (
+                <span className="absolute bottom-1 h-0.5 w-6 rounded-full bg-primary/80" />
+              )}
             </Link>
           );
         })}
@@ -201,9 +390,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           onClick={() => {
             triggerHaptic();
             setMoreOpen(true);
+            clearIdle();
           }}
           aria-expanded={moreOpen}
-          className={`hit flex flex-col items-center justify-center gap-1 pb-1.5 pt-2 text-xs font-bold transition active:scale-95 motion-reduce:active:scale-100 ${
+          className={`hit relative flex flex-col items-center justify-center gap-1 pb-1.5 pt-2 text-xs font-bold transition-all duration-200 active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100 ${
             moreActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
           }`}
         >
@@ -233,11 +423,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                   onClick={() => {
                     triggerHaptic();
                     setMoreOpen(false);
+                    scheduleHide();
                   }}
                   aria-current={isCurrent ? "page" : undefined}
-                  className={`flex min-h-14 items-center gap-3 rounded-2xl border px-3.5 py-3 text-sm font-bold transition active:scale-[0.98] motion-reduce:active:scale-100 ${
+                  className={`flex min-h-14 items-center gap-3 rounded-2xl border px-3.5 py-3 text-sm font-bold transition-all duration-200 active:scale-[0.98] motion-reduce:active:scale-100 ${
                     isCurrent
-                      ? "border-primary/40 bg-primary/10 text-primary"
+                      ? "border-primary/40 bg-primary/10 text-primary shadow-sm"
                       : "border-border/70 bg-card hover:bg-muted"
                   }`}
                 >
@@ -251,8 +442,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             <button
               type="button"
-              onClick={toggleTheme}
-              className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-border/70 bg-card px-3 py-2.5 text-sm font-semibold hover:bg-muted"
+              onClick={() => {
+                triggerHaptic();
+                toggleTheme();
+              }}
+              className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-border/70 bg-card px-3 py-2.5 text-sm font-semibold transition-all duration-200 hover:bg-muted active:scale-[0.98] motion-reduce:active:scale-100"
             >
               {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
               <span>{theme === "light" ? "מצב כהה" : "מצב בהיר"}</span>
