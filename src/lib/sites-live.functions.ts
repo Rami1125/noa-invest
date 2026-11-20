@@ -13,7 +13,7 @@ import {
 } from "./eta";
 
 const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbx9d834wq3wm3z4XNHu7jIIhamopctR9dlHra6o4-PgYaflAhe3-VcYxNB4_abRkm_yyQ/exec";
+  "https://script.google.com/macros/s/AKfycbzGOG7GxiXkT-OtUw4obBvGkyw_wKRhv2Jjf4I8qbLATIIMKAN099UHJqqYjdfKV-WwWw/exec";
 
 function gasUrl(): string {
   return (process.env["GAS_URL"] || "").trim() || DEFAULT_GAS_URL;
