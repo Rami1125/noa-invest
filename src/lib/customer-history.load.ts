@@ -51,131 +51,77 @@ export async function loadCustomerHistory(customerNo: string): Promise<CustomerH
     .trim();
 
   const notes = raw.notes
-    .filter((r) => {
-      const no = (g(r, "מס' לקוח") || "").replace(/\.0+$/, "");
-      if (no && no === customerNo) return true;
-      if (nameKey) {
-        const on = (g(r, "שם לקוח") || "")
-          .toLowerCase()
-          .replace(/["'״׳.,]/g, " ")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (on && (on === nameKey || on.includes(nameKey) || nameKey.includes(on))) return true;
-      }
-      return false;
-    })
     .map(mapNote)
-    .filter((n) => n.id && !seen.has(n.id) && !!seen.add(n.id))
-    .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
-
-  const ituranVisits = raw.ituranVisits
-    .filter((r) => (g(r, "מס' לקוח") || "").replace(/\.0+$/, "") === customerNo)
+    .filter((n) => n.customerNo === customerNo || (nameKey && n.customerName.toLowerCase().includes(nameKey)));
+  const orders = raw.orders.map(mapOrder).filter((o) => o.customerNo === customerNo);
+  const ituranVisits = raw.ituran
     .map(mapIturanVisit)
-    .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
-
-  const orders = raw.orders
-    .filter((r) => {
-      const no = (g(r, "מס' לקוח") || g(r, "מספר לקוח") || "").replace(/\.0+$/, "");
-      if (no && no === customerNo) return true;
-      if (nameKey) {
-        const on = (g(r, "שם לקוח") || g(r, "לקוח") || "")
-          .toLowerCase()
-          .replace(/["'״׳.,]/g, " ")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (on && (on === nameKey || on.includes(nameKey) || nameKey.includes(on))) return true;
-      }
-      return false;
-    })
-    .map(mapOrder)
-    .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
-
+    .filter((v) => v.customerNo === customerNo || (nameKey && (v.customerName || "").toLowerCase().includes(nameKey)));
   const visits = raw.visits
-    .filter((r) => customerTokens(g(r, "לקוחות")).some((c) => c.no === customerNo))
     .map(mapVisit)
-    .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
+    .filter((v) => v.customerNos.includes(customerNo) || (nameKey && v.customerNames.some((n) => n.toLowerCase().includes(nameKey))));
 
-  const sites: HSite[] = raw.sites
-    .filter((r) => (g(r, "מס' לקוח") || "").replace(/\.0+$/, "") === customerNo)
-    .map((r) => ({
-      siteKey: g(r, "מפתח אתר"),
-      address: g(r, "כתובת"),
-      visits: num(g(r, "כמות ביקורים")) ?? 0,
-      lastIso: toIso(g(r, "תאריך ביקור אחרון")),
-      samples: num(g(r, "מדידות")) ?? 0,
-      medianMin: num(g(r, "P50 משך באתר")),
-      p80Min: num(g(r, "P80 תכנון בטוח")),
-      maxMin: num(g(r, "מקסימום דקות")),
-      confidence: g(r, "רמת ביטחון"),
-    }));
-
-  const noteIds = new Set(notes.map((n) => n.id));
-  const inquiries: HInquiry[] = raw.inquiries
-    .filter(
-      (r) =>
-        (g(r, "מס' לקוח") || "").replace(/\.0+$/, "") === customerNo ||
-        notes.some((n) => n.id === g(r, "מס' תעודה")),
-    )
-    .map((r) => ({
-      noteId: g(r, "מס' תעודה"),
-      reason: g(r, "סיבה"),
-      reply: g(r, "תשובה"),
-      status: g(r, "סטטוס"),
-      updatedIso: toIso(g(r, "updatedAt") || g(r, "תאריך")),
-      fileUrl: g(r, "כתובת הקובץ (URL)"),
-    }));
-
-  const checks: HCheck[] = raw.checks
-    .filter((r) => noteIds.has(g(r, "מספר תעודה")))
-    .map((r) => ({
-      dateIso: toIso(g(r, "תאריך")),
-      noteId: g(r, "מספר תעודה"),
-      approver: g(r, "מאשר"),
-      checkId: g(r, "מזהה בדיקה"),
-      result: g(r, "אסמכתא / תוצאת בדיקה"),
-    }));
-
-  const stopSamples = notes.map((n) => n.itStop).filter((x): x is number => x != null && x > 0);
-  for (const s of sites) {
-    if (s.medianMin != null && s.medianMin > 0) stopSamples.push(s.medianMin);
+  const sites: HSite[] = [];
+  for (const row of raw.sites) {
+    const nos = customerTokens(g(row, "לקוחות")).map((c) => c.no).filter(Boolean);
+    if (!nos.includes(customerNo)) continue;
+    sites.push({
+      siteKey: g(row, "מפתח אתר"),
+      address: g(row, "כתובת אספקה") || g(row, "כתובת"),
+      city: g(row, "עיר"),
+      customerNo,
+      customerName: summary?.name || "",
+      latitude: parseCoord(g(row, "lat")) ?? parseCoord(g(row, "latitude")),
+      longitude: parseCoord(g(row, "lng")) ?? parseCoord(g(row, "longitude")),
+      visits: num(g(row, "ביקורים")) ?? 0,
+      lastVisitIso: toIso(g(row, "ביקור אחרון") || g(row, "תאריך אחרון")),
+      p80Min: num(g(row, "P80") || g(row, "p80")),
+      avgMin: num(g(row, "ממוצע דק") || g(row, "avg")),
+    });
   }
-  const avgSiteMin = stopSamples.length
-    ? Math.round(stopSamples.reduce((a, b) => a + b, 0) / stopSamples.length)
-    : null;
-  const openInquiries = inquiries.filter((i) => !/סגור|closed|done|הושלם/i.test(i.status)).length;
-  const cust: CustomerSummary = {
-    ...(summary ?? empty),
+
+  const inquiries: HInquiry[] = [];
+  for (const row of raw.inquiries || []) {
+    const no = (g(row, "מס' לקוח") || "").replace(/\.0+$/, "");
+    if (no !== customerNo) continue;
+    inquiries.push({
+      id: g(row, "מזהה") || g(row, "id"),
+      status: g(row, "סטטוס"),
+      subject: g(row, "נושא") || g(row, "תיאור"),
+      createdIso: toIso(g(row, "תאריך") || g(row, "נוצר")),
+    });
+  }
+
+  const checks: HCheck[] = [];
+  for (const row of raw.checks || []) {
+    const no = (g(row, "מס' לקוח") || "").replace(/\.0+$/, "");
+    if (no !== customerNo) continue;
+    checks.push({
+      id: g(row, "מזהה") || g(row, "id"),
+      status: g(row, "סטטוס"),
+      note: g(row, "הערה") || g(row, "תיאור"),
+      createdIso: toIso(g(row, "תאריך")),
+    });
+  }
+
+  const ptoSessions = collectCustomerPtoSessions(raw, customerNo, summary?.name || "");
+  const siteMins = visits.map((v) => v.siteMin).filter((n): n is number => n != null && n > 0);
+  const avgSiteMin = siteMins.length
+    ? Math.round((siteMins.reduce((a, b) => a + b, 0) / siteMins.length) * 10) / 10
+    : summary?.avgSiteMin ?? null;
+
+  const customer: CustomerSummary = {
+    ...(summary || empty),
     notesCount: notes.length,
     ordersCount: orders.length,
-    visitsCount: visits.length + ituranVisits.length,
+    visitsCount: visits.length,
+    openInquiries: inquiries.filter((i) => !/סגור|closed|done|טופל/i.test(i.status || "")).length,
     avgSiteMin,
-    openInquiries,
+    addressesCount: new Set(sites.map((s) => s.address).filter(Boolean)).size || (summary?.addressesCount ?? 0),
   };
 
-  const addrTokens = buildAddrTokens([
-    ...notes.flatMap((n) => [n.address, n.customerName]),
-    summary?.name || "",
-    summary?.address || "",
-    nameKey,
-  ]);
-  if (/ערוגת|בשם|616088/.test(nameKey + customerNo + notes.map((n) => n.customerName).join(""))) {
-    for (const x of ["קדימה", "צורן", "כנרת", "רוטשילד", "ערוגת", "הבשם"]) addrTokens.add(x);
-  }
-
-  const ptoSessions = collectCustomerPtoSessions({
-    customerNo,
-    nameKey,
-    noteIds,
-    addrTokens,
-    ptoRows: raw.pto || [],
-    sessionRows: raw.ptoSheetSessions || [],
-    notes,
-    ituranVisits,
-    visits,
-  });
-
   return {
-    customer: cust,
+    customer,
     notes,
     orders,
     ituranVisits,
@@ -219,32 +165,27 @@ export async function loadSiteAtlas() {
     let longitude =
       parseCoord(g(row, "lng")) ??
       parseCoord(g(row, "Lng")) ??
-      parseCoord(g(row, "lon")) ??
       parseCoord(g(row, "longitude")) ??
       parseCoord(g(row, "קו אורך"));
-    if (latitude != null && longitude != null) {
-      if ((latitude === 0 && longitude === 0) || !isIsraelCoord(latitude, longitude)) {
-        latitude = null;
-        longitude = null;
-      }
+    if (latitude != null && longitude != null && !isIsraelCoord(latitude, longitude)) {
+      latitude = null;
+      longitude = null;
     }
-    const ptoHistory = history.filter((v) => v.ptoMin != null && v.ptoMin > 0);
+    const ptoHistory = history.filter((v) => (v.ptoMin ?? 0) > 0);
     const ptoTotalMin = ptoHistory.reduce((s, v) => s + (v.ptoMin || 0), 0);
+    const cust = customersBySite.get(key);
     sites.push({
-      siteKey,
+      siteKey: key,
       address,
       city,
-      customerNo: g(row, "מס' לקוח") || customersBySite.get(key)?.no || "",
-      customerName: g(row, "שם לקוח") || customersBySite.get(key)?.name || "",
-      visits: num(g(row, "כמות ביקורים") || g(row, "ביקורים")) ?? history.length,
-      lastIso: toIso(g(row, "תאריך ביקור אחרון") || g(row, "ביקור אחרון")),
-      samples: num(g(row, "מדידות")) ?? history.filter((v) => v.siteMin != null).length,
-      medianMin: num(g(row, "P50 משך באתר") || g(row, "באתר חציון (דק׳)")),
-      p80Min: num(g(row, "P80 תכנון בטוח") || g(row, "באתר P80 (דק׳)")),
-      maxMin: num(g(row, "מקסימום דקות") || g(row, "באתר מקס׳ (דק׳)")),
-      confidence: g(row, "רמת ביטחון") || g(row, "ביטחון"),
+      customerNo: cust?.no || "",
+      customerName: cust?.name || g(row, "לקוח") || "",
       latitude,
       longitude,
+      visits: history.length || num(g(row, "ביקורים")) || 0,
+      lastVisitIso: history[0]?.dateIso || toIso(g(row, "ביקור אחרון")),
+      p80Min: num(g(row, "P80") || g(row, "p80")),
+      avgMin: num(g(row, "ממוצע דק") || g(row, "avg")),
       ptoOpens: ptoHistory.length,
       ptoTotalMin,
       visitHistory: history.map((v) => ({
@@ -273,4 +214,15 @@ export async function loadSiteAtlas() {
     mappedCount: sites.filter((s) => s.latitude != null && s.longitude != null).length,
     generatedAt: new Date().toISOString(),
   };
+}
+
+/** אינדקס לקוחות מכל הטאבים — לרשימת /customers */
+export async function loadCustomerIndex(): Promise<CustomerSummary[]> {
+  const raw = await loadRaw();
+  const index = buildIndex(raw);
+  return [...index.values()].sort((a, b) => {
+    const byLast = (b.lastIso || "").localeCompare(a.lastIso || "");
+    if (byLast) return byLast;
+    return (a.name || "").localeCompare(b.name || "", "he");
+  });
 }
