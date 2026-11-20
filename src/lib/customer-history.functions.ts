@@ -28,7 +28,12 @@ export type { PurchaseLine, PurchaseMatrix };
 
 /** רשימת כל הלקוחות עם סיכומים (מכל הטאבים) */
 export const listCustomerIndexFn = createServerFn({ method: "GET" }).handler(async () => {
-  return loadCustomerIndex();
+  const customers = await loadCustomerIndex();
+  return {
+    customers,
+    source: "גיליון SABAN · תעודות / הזמנות / לקוחות",
+    generatedAt: new Date().toISOString(),
+  };
 });
 
 /** היסטוריה מלאה של לקוח אחד מכל הטאבים */
