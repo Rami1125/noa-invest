@@ -55,3 +55,26 @@ export function relativeFromIso(iso: string): string {
   if (days < 365) return `לפני ${Math.round(days / 30)} חודשים`;
   return `לפני ${(days / 365).toFixed(1)} שנים`;
 }
+
+const JERUSALEM_DT: Intl.DateTimeFormatOptions = {
+  timeZone: "Asia/Jerusalem",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+};
+
+/**
+ * מציג ISO/תאריך בשעון ישראל (חורף/קיץ אוטומטי).
+ * דוגמה: 2026-11-18T13:17:00.000Z → "18.11.2026, 15:17"
+ * ערכים שאינם תאריך תקף מוחזרים כמחרוזת מקורית.
+ */
+export function formatJerusalemDateTime(raw: unknown): string {
+  if (raw == null || raw === "") return "";
+  const str = String(raw).trim();
+  if (!str || str === "—") return str;
+  const d = new Date(str);
+  if (Number.isNaN(d.getTime())) return str;
+  return new Intl.DateTimeFormat("he-IL", JERUSALEM_DT).format(d);
+}
