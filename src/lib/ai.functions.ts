@@ -1,5 +1,6 @@
 /**
  * Server-side Gemini + GAS context for Noa (emergency restored core).
+ * Includes resilient Gemini client: retries on 503, model fallbacks, multi-key.
  */
 import { createServerFn } from "@tanstack/react-start";
 import { loadCustomerHistory } from "./customer-history.server";
@@ -8,28 +9,6 @@ import { pairPtoEvents, analyzePto, type PtoRow } from "./smart-dispatch/pto-pai
 
 type Msg = { role: "user" | "assistant"; content: string };
 type AskInput = { messages: Msg[]; customerNo?: string };
-type SourceResult = { available: boolean; count: number; records?: unknown[]; error?: string };
-
-const MASTER_SHEET_ID = "1FsLseQrKbIj_AvlE6-dW4J12Gr88P3uaoFVBjEcUjsw";
-const DEFAULT_GAS_URL =
-  "https://script.google.com/macros/s/AKfycbx9d834wq3wm3z4XNHu7jIIhamopctR9dlHra6o4-PgYaflAhe3-VcYxNB4_abRkm_yyQ/exec";
-
-function gasConfig() {
-  const token = process.env["API_TOKEN"];
-  if (!token) throw new Error("API_TOKEN לא מוגדר בשרת");
-  const envUrl = process.env["GAS_URL"] || "";
-  const stale = [
-    "TwXhw",
-    "AKfycbyv4x_fGMkWmjOLujRymJITBoGQpnbIbJnZp4S9nNs6sacQb1g7x8vyHjaCw6y_t7Pxiw",
-    "AKfycbw6EmTxp0buRjEl7JfKihm4xq2NP3kbGr46lEEYP3x3Vy_3eVkaOTVzChVjXJn5vaS8Ug",
-    "AKfycbwKcoR9kEAAapY9MZIm5cS3MwCsNhqJZgs6ZQDSB99EVcQZ3it8RoLwfAIuzpZXpALTuw",
-  ];
-  const url =
-    envUrl && !stale.some((m) => envUrl.includes(m))
-      ? envUrl
-      : DEFAULT_GAS_URL;
-  return { token, url };
-}
 
 async function sleepMs(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
@@ -142,10 +121,12 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
           if (!res.ok) {
             const errText = await res.text();
             lastErr = `Gemini HTTP ${res.status}: ${errText.slice(0, 300)}`;
-            const invalidKey =
+            if (
               res.status === 400 &&
-              (/API_KEY_INVALID/i.test(errText) || /API key not valid/i.test(errText));
-            if (invalidKey) break;
+              (/API_KEY_INVALID/i.test(errText) || /API key not valid/i.test(errText))
+            ) {
+              break;
+            }
             if (res.status === 404 || /not found|NOT_FOUND/i.test(errText)) break;
             if (res.status === 429 || /quota|rate.?limit/i.test(errText)) {
               hitQuota = true;
@@ -199,13 +180,9 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
             hitQuota = true;
             break;
           }
-          if (/HTTP 400|HTTP 404/.test(lastErr)) {
-            if (/HTTP 404/.test(lastErr)) break;
-            throw new Error(lastErr);
-          }
-          if (/HTTP 503|UNAVAILABLE|high demand/i.test(lastErr)) {
-            hitUnavailable = true;
-          }
+          if (/HTTP 404/.test(lastErr)) break;
+          if (/HTTP 400/.test(lastErr)) throw new Error(lastErr);
+          if (/HTTP 503|UNAVAILABLE|high demand/i.test(lastErr)) hitUnavailable = true;
           if (attempt < 3) await sleepMs(700 * (attempt + 1));
         }
       }
@@ -214,20 +191,18 @@ async function callGemini(instructions: string, messages: Msg[]): Promise<string
 
   if (hitQuota) {
     throw new Error(
-      `חריגת מכסת Gemini (free tier, ~20 בקשות/דקה). נוסו ${keys.length} מפתחות × ${models.length} מודלים. ` +
-        `המתן כדקה ונסה שוב, או הגדר מפתח עם Billing / העלה מכסה ב-Google AI Studio.`,
+      `חריגת מכסת Gemini (free tier). נוסו ${keys.length} מפתחות × ${models.length} מודלים. ` +
+        `המתן כדקה ונסה שוב, או הגדר Billing ב-Google AI Studio.`,
     );
   }
   if (hitUnavailable) {
     throw new Error(
       `שירות Gemini עמוס כרגע (HTTP 503 / UNAVAILABLE). ` +
         `נוסו ${models.length} מודלים ו-${keys.length} מפתחות עם ניסיונות חוזרים. ` +
-        `זה בדרך כלל זמני — לחץ "נסה שוב" בעוד 20–60 שניות.`,
+        `זה בדרך כלל זמני — נסה שוב בעוד 20–60 שניות.`,
     );
   }
-  throw new Error(
-    lastErr || `Gemini נכשל — נוסו ${keys.length} מפתחות ו-${models.length} מודלים`,
-  );
+  throw new Error(lastErr || `Gemini נכשל — נוסו ${keys.length} מפתחות ו-${models.length} מודלים`);
 }
 
 const DEFAULT_SUGGESTIONS = [
@@ -254,10 +229,10 @@ export const askNoa = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }) => {
-    const { messages, customerNo } = data;
-    const instructions = `את נועה — עוזרת חמ\"ל לוגיסטי של ח. סבן. עברית מלאה, תמציתית ומדויקת. אל תמציאי נתונים.`;
-    const withContext: Msg[] = messages;
-    const text = await callGemini(instructions, withContext);
+    const { messages } = data;
+    const instructions =
+      "את נועה — עוזרת חמ\"ל לוגיסטי של ח. סבן חומרי בניין. עברית מלאה, תמציתית ומדויקת. אל תמציאי נתונים.";
+    const text = await callGemini(instructions, messages);
     return { text, suggestedQuestions: DEFAULT_SUGGESTIONS };
   });
 
