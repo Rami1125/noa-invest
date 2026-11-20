@@ -71,7 +71,13 @@ function CustomersList() {
     staleTime: 60_000,
   });
 
-  const customers = q.data?.customers || [];
+  const customers: CustomerSummary[] = Array.isArray(q.data)
+    ? q.data
+    : Array.isArray(q.data?.customers)
+      ? q.data.customers
+      : [];
+  const sourceLabel =
+    (!Array.isArray(q.data) && q.data?.source) || "גיליון SABAN";
 
   const totals = React.useMemo(() => {
     const mins = customers.map((c) => c.avgSiteMin).filter((m): m is number => m != null);
@@ -111,7 +117,7 @@ function CustomersList() {
     <>
       <PageHeader
         title="תיקי לקוחות"
-        subtitle={q.data ? `${q.data.source} · ${customers.length} לקוחות` : "נטען מהגיליון"}
+        subtitle={q.isLoading ? "נטען מהגיליון" : q.isError ? "שגיאה בטעינה" : `${sourceLabel} · ${customers.length} לקוחות`}
         action={
           <button
             type="button"
@@ -126,7 +132,6 @@ function CustomersList() {
       />
 
       <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 md:px-8" dir="rtl">
-        {/* Hero */}
         <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-gradient-to-br from-primary/15 via-card to-emerald-500/10 p-6 shadow-card">
           <div className="pointer-events-none absolute -left-20 -top-20 h-56 w-56 rounded-full bg-primary/15 blur-3xl" />
           <div className="relative">
@@ -154,219 +159,195 @@ function CustomersList() {
           </div>
         </section>
 
-        {/* חיפוש, מיון וסינון */}
-        <div className="space-y-3 rounded-3xl border border-border/60 bg-card p-4 shadow-card">
-          <div className="flex flex-col gap-2 md:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="חיפוש לפי שם, מספר לקוח, כתובת, איש קשר או טלפון…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-2xl border border-transparent bg-muted/50 py-3 pl-4 pr-11 text-sm font-medium focus:border-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/40"
-              />
-            </div>
-            <select
-              aria-label="מיון"
-              value={sort}
-              onChange={(e) => setSort(e.target.value as Sort)}
-              className="min-h-11 rounded-2xl border bg-muted/50 px-3 text-xs font-bold"
-            >
-              {SORTS.map((s) => (
-                <option key={s.key} value={s.key}>
-                  מיון: {s.label}
-                </option>
-              ))}
-            </select>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="חיפוש שם / מספר לקוח / כתובת / טלפון…"
+              className="w-full rounded-2xl border border-border/70 bg-card py-2.5 pr-10 pl-4 text-sm shadow-sm outline-none focus:border-primary"
+            />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {CHIPS.map((c) => (
-              <button
-                key={c.key}
-                type="button"
-                onClick={() => setChip(c.key)}
-                className={cn(
-                  "rounded-xl px-3 py-1.5 text-xs font-bold transition",
-                  chip === c.key ? "bg-primary text-primary-foreground shadow-xs" : "bg-muted/80 text-muted-foreground hover:bg-muted",
-                )}
-              >
-                {c.label}
-              </button>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as Sort)}
+            className="min-h-11 rounded-2xl border border-border/70 bg-card px-3 text-xs font-bold"
+          >
+            {SORTS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
             ))}
-            <span className="mr-auto self-center text-[11px] text-muted-foreground">{filtered.length} מוצגים</span>
-          </div>
+          </select>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {CHIPS.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => setChip(c.key)}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-bold transition",
+                chip === c.key
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border/70 bg-card text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {c.label}
+            </button>
+          ))}
         </div>
 
         {q.isLoading && (
-          <div className="flex justify-center gap-2 py-16 text-muted-foreground">
+          <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
-            קורא 6 טאבים מהגיליון…
+            טוען לקוחות מהגיליון…
           </div>
         )}
 
         {q.isError && (
-          <div className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 text-center text-sm text-destructive">
-            {(q.error as Error).message}
+          <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+            <div className="flex items-center gap-2 font-bold">
+              <AlertCircle className="h-4 w-4" />
+              שגיאה בטעינת לקוחות
+            </div>
+            <p className="mt-1">{(q.error as Error).message}</p>
+            <button
+              type="button"
+              onClick={() => void q.refetch()}
+              className="mt-3 rounded-xl border px-3 py-1.5 text-xs font-bold"
+            >
+              נסה שוב
+            </button>
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {!q.isLoading && !q.isError && filtered.length === 0 && (
+          <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+            לא נמצאו לקוחות{search ? ` עבור «${search}»` : ""}.
+          </p>
+        )}
+
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((c) => (
             <CustomerCard key={c.customerNo} c={c} />
           ))}
-        </div>
-
-        {!q.isLoading && !q.isError && filtered.length === 0 && (
-          <div className="rounded-3xl border border-border/60 bg-card p-10 text-center shadow-card">
-            <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground/60" />
-            <h3 className="mt-2 font-display text-lg font-bold">לא נמצאו לקוחות</h3>
-            <p className="text-sm text-muted-foreground">נסו לשנות את החיפוש או הסינון</p>
-          </div>
-        )}
+        </ul>
       </div>
     </>
   );
 }
 
-function initials(name: string) {
-  return name
-    .replace(/[^\p{L}\s]/gu, "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("");
-}
-
 function CustomerCard({ c }: { c: CustomerSummary }) {
-  const phoneDigits = c.phone.replace(/[^0-9]/g, "");
+  const phoneDigits = (c.phone || "").replace(/[^0-9]/g, "");
   const wa = phoneDigits ? `972${phoneDigits.slice(-9)}` : "";
-  const returning = c.notesCount + c.ordersCount > 1;
-
   return (
-    <article className="group flex flex-col justify-between rounded-3xl border border-border/60 bg-card p-5 shadow-card transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg">
-      <div>
-        <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 text-sm font-extrabold text-primary-foreground shadow-sm">
-            {initials(c.name) || "#"}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-xs font-bold text-muted-foreground">#{c.customerNo}</span>
-              <span
-                className={cn(
-                  "rounded-full px-2 py-0.5 text-[10px] font-bold",
-                  returning ? "bg-emerald-500/15 text-emerald-700" : "bg-amber-500/15 text-amber-800",
-                )}
-              >
-                {returning ? "לקוח חוזר" : "לקוח חדש"}
-              </span>
-              {c.openInquiries > 0 && (
-                <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-bold text-rose-700">
-                  {c.openInquiries} בירורים פתוחים
-                </span>
-              )}
-            </div>
-            <h2 className="mt-1 truncate font-display text-lg font-bold">{c.name}</h2>
+    <li className="group relative overflow-hidden rounded-3xl border border-border/70 bg-card p-4 shadow-card transition hover:border-primary/40 hover:shadow-md">
+      <Link
+        to="/customers/$id"
+        params={{ id: c.customerNo }}
+        className="absolute inset-0 z-0"
+        aria-label={`תיק לקוח ${c.name}`}
+      />
+      <div className="relative z-10 pointer-events-none">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-mono text-[11px] font-bold text-muted-foreground">#{c.customerNo}</div>
+            <h3 className="truncate font-display text-base font-bold">{c.name}</h3>
             {c.address && (
-              <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                <MapPin className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{c.address}</span>
-                {c.addressesCount > 1 && <span className="shrink-0">(+{c.addressesCount - 1})</span>}
+              <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
+                <MapPin className="h-3 w-3 shrink-0" />
+                {c.address}
               </p>
             )}
           </div>
-          <Link
-            to="/customers/$id"
-            params={{ id: c.customerNo }}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary transition group-hover:bg-primary group-hover:text-primary-foreground"
-            aria-label="פתח תיק"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </Link>
+          <ChevronLeft className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:text-primary" />
         </div>
-
-        <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-          <Mini label="תעודות" value={String(c.notesCount)} />
-          <Mini label="הזמנות" value={String(c.ordersCount)} />
-          <Mini label="פריקה ממוצעת" value={c.avgSiteMin != null ? `${c.avgSiteMin} דק׳` : "—"} />
+        <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+          <Badge icon={FileText} text={`${c.notesCount} תעודות`} />
+          <Badge icon={Package} text={`${c.ordersCount} הזמנות`} />
+          {c.avgSiteMin != null && <Badge icon={Timer} text={`${c.avgSiteMin} דק׳`} />}
+          {c.openInquiries > 0 && <Badge icon={MessageCircleWarning} text={`${c.openInquiries} בירור`} danger />}
         </div>
-
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {c.lastIso && (
-            <span>
-              אספקה אחרונה: <strong className="text-foreground">{fmtShort(c.lastIso)}</strong> ({relativeFromIso(c.lastIso)})
-            </span>
-          )}
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
           {c.preferredDriver && (
             <span className="inline-flex items-center gap-1">
-              <Truck className="h-3.5 w-3.5" />
+              <Truck className="h-3 w-3" />
               {c.preferredDriver}
             </span>
           )}
+          {c.lastIso && <span>{relativeFromIso(c.lastIso) || fmtShort(c.lastIso)}</span>}
         </div>
       </div>
-
-      <div className="mt-4 flex items-center justify-between border-t border-border/50 pt-3">
-        <div className="flex gap-2">
-          {c.phone && (
-            <a href={`tel:${c.phone}`} className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted transition hover:bg-muted/70" title="חיוג">
-              <Phone className="h-4 w-4" />
-            </a>
-          )}
-          {wa && (
-            <a
-              href={`https://wa.me/${wa}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-700 transition hover:bg-emerald-500/25"
-              title="וואטסאפ"
-            >
-              <MessageSquare className="h-4 w-4" />
-            </a>
-          )}
-          {c.address && (
-            <a
-              href={`https://waze.com/ul?q=${encodeURIComponent(c.address)}&navigate=yes`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/15 text-blue-700 transition hover:bg-blue-500/25"
-              title="ניווט"
-            >
-              <Navigation className="h-4 w-4" />
-            </a>
-          )}
-        </div>
+      <div className="relative z-10 mt-3 flex flex-wrap gap-2 pointer-events-auto">
+        {c.phone && (
+          <a
+            href={`tel:${c.phone}`}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 rounded-xl bg-muted/80 px-2.5 py-1.5 text-[11px] font-bold hover:bg-muted"
+          >
+            <Phone className="h-3 w-3" /> חיוג
+          </a>
+        )}
+        {wa && (
+          <a
+            href={`https://wa.me/${wa}`}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-bold text-emerald-700"
+          >
+            <MessageSquare className="h-3 w-3" /> וואטסאפ
+          </a>
+        )}
+        {c.address && (
+          <a
+            href={`https://waze.com/ul?q=${encodeURIComponent(c.address)}&navigate=yes`}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 rounded-xl border border-blue-500/30 bg-blue-500/10 px-2.5 py-1.5 text-[11px] font-bold text-blue-700"
+          >
+            <Navigation className="h-3 w-3" /> Waze
+          </a>
+        )}
         <Link
           to="/customers/$id"
           params={{ id: c.customerNo }}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-primary/10 px-3 py-2 text-xs font-bold text-primary transition hover:bg-primary hover:text-primary-foreground"
+          className="inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-bold hover:bg-muted"
         >
-          <FolderOpen className="h-4 w-4" />
-          פתח תיק
+          <FolderOpen className="h-3 w-3" /> תיק
         </Link>
       </div>
-    </article>
+    </li>
   );
 }
 
-function Mini({ label, value }: { label: string; value: string }) {
+function Badge({
+  icon: Icon,
+  text,
+  danger,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  text: string;
+  danger?: boolean;
+}) {
   return (
-    <div className="rounded-xl bg-muted/50 p-2">
-      <div className="text-[10px] text-muted-foreground">{label}</div>
-      <div className="font-display text-base font-extrabold">{value}</div>
-    </div>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold",
+        danger
+          ? "border-red-500/30 bg-red-500/10 text-red-700"
+          : "border-border/60 bg-muted/40 text-muted-foreground",
+      )}
+    >
+      <Icon className="h-3 w-3" />
+      {text}
+    </span>
   );
 }
-
-const TONES = {
-  blue: "bg-blue-500/15 text-blue-600",
-  amber: "bg-amber-500/15 text-amber-600",
-  indigo: "bg-indigo-500/15 text-indigo-600",
-  emerald: "bg-emerald-500/15 text-emerald-600",
-  rose: "bg-rose-500/15 text-rose-600",
-} as const;
 
 function Kpi({
   icon: Icon,
@@ -377,17 +358,22 @@ function Kpi({
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
-  tone: keyof typeof TONES;
+  tone: "blue" | "amber" | "indigo" | "emerald" | "rose";
 }) {
+  const tones: Record<string, string> = {
+    blue: "text-blue-600",
+    amber: "text-amber-600",
+    indigo: "text-indigo-600",
+    emerald: "text-emerald-600",
+    rose: "text-rose-600",
+  };
   return (
-    <div className="flex items-center gap-3 rounded-2xl bg-card/80 p-3 shadow-xs ring-1 ring-border/50 transition hover:-translate-y-0.5 hover:shadow-md">
-      <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", TONES[tone])}>
-        <Icon className="h-5 w-5" />
+    <div className="rounded-2xl border border-border/50 bg-background/70 p-3">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Icon className={cn("h-3.5 w-3.5", tones[tone])} />
+        {label}
       </div>
-      <div className="min-w-0">
-        <div className="truncate text-[11px] font-semibold text-muted-foreground">{label}</div>
-        <div className="font-display text-xl font-extrabold">{value}</div>
-      </div>
+      <div className="mt-1 text-lg font-bold tabular-nums">{value}</div>
     </div>
   );
 }
