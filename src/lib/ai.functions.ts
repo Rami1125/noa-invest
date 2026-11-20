@@ -150,13 +150,13 @@ async function geminiRequest(body: Rec, deadline: number): Promise<Rec> {
 }
 
 // ───────────── נתונים: טעינה (עם מטמון קצר), נרמול, חישובים דטרמיניסטיים ─────────────
-type Deps = {
+export type Deps = {
   loadNotes: () => Promise<Rec[]>;
   loadPtoEvents: (sinceIso: string) => Promise<Rec[]>;
   gemini: (body: Rec, deadline: number) => Promise<Rec>;
 };
 let notesCache: { at: number; rows: Rec[] } | null = null;
-const realDeps: Deps = {
+export const realDeps: Deps = {
   loadNotes: async () => {
     if (notesCache && Date.now() - notesCache.at < 45_000) return notesCache.rows;
     const { listNotesFn } = await import("./notes-api.functions");
@@ -237,7 +237,7 @@ const TOOLS_INTERNAL = [
 const TOOLS_CUSTOMER = TOOLS_INTERNAL.filter((t) => ["search_notes", "get_note", "customer_summary"].includes(t.name));
 const GPS_SOURCES = ["sheet_AA_AB", "sheet_AH_AJ", "sheet_partial", "ituran_live"];
 
-async function runTool(name: string, args: Rec, ctx: { mode: Mode; customerNo?: string; deps: Deps }): Promise<Rec> {
+export async function runTool(name: string, args: Rec, ctx: { mode: Mode; customerNo?: string; deps: Deps }): Promise<Rec> {
   const all = await ctx.deps.loadNotes();
   // הרשאות נאכפות בקוד, לא בפרומפט: במצב לקוח רואים רק תעודות של הלקוח המזוהה
   const scope = ctx.mode === "customer" ? all.filter((n) => String(n["customerNo"]) === ctx.customerNo) : all;
