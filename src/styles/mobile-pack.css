@@ -1,4 +1,52 @@
-/* Mobile type & CTA package — connected via styles.css */
+/* ═══════════════════════════════════════════════════════════
+   SABAN Mobile + PWA Design Pack
+   RTL · safe-area · image frames · smooth motion · touch UI
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  --nav-h: 4.25rem;
+  --header-h: 3.5rem;
+  --mobile-gutter: 1rem;
+  --mobile-radius: 1.25rem;
+  --mobile-radius-sm: 0.875rem;
+  --frame-border: color-mix(in oklab, var(--border) 75%, transparent);
+  --frame-shadow: 0 1px 2px color-mix(in oklab, var(--foreground) 6%, transparent),
+    0 8px 24px color-mix(in oklab, var(--foreground) 5%, transparent);
+  --press-scale: 0.98;
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.2, 0.64, 1);
+  --dur-fast: 150ms;
+  --dur-med: 280ms;
+  --dur-slow: 420ms;
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  html {
+    overscroll-behavior-y: none;
+  }
+  body {
+    min-height: 100dvh;
+    background: var(--background);
+  }
+  .pt-safe {
+    padding-top: max(env(safe-area-inset-top), 0.5rem);
+  }
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+.pb-nav {
+  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 0.75rem);
+}
+
 @utility type-title {
   font-family: var(--font-display);
   font-weight: 800;
@@ -29,6 +77,95 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-weight: 700;
 }
+
+@utility card-mobile {
+  border-radius: var(--mobile-radius);
+  border: 1px solid var(--frame-border);
+  background: var(--card);
+  padding: 1rem;
+  box-shadow: var(--frame-shadow);
+  transition: transform var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-med) var(--ease-out-soft),
+    border-color var(--dur-fast) ease;
+}
+@utility card-mobile-interactive {
+  border-radius: var(--mobile-radius);
+  border: 1px solid var(--frame-border);
+  background: var(--card);
+  padding: 1rem;
+  box-shadow: var(--frame-shadow);
+  transition: transform var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-med) var(--ease-out-soft),
+    border-color var(--dur-fast) ease;
+  &:active {
+    transform: scale(var(--press-scale));
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &:active {
+      transform: none;
+    }
+  }
+}
+
+@utility img-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--mobile-radius-sm);
+  border: 1px solid var(--frame-border);
+  background: color-mix(in oklab, var(--muted) 55%, var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--background) 40%, transparent);
+}
+@utility img-frame-lg {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--mobile-radius);
+  border: 1px solid var(--frame-border);
+  background: color-mix(in oklab, var(--muted) 55%, var(--card));
+  box-shadow: var(--frame-shadow);
+}
+@utility img-frame-16-10 {
+  aspect-ratio: 16 / 10;
+}
+@utility img-frame-16-9 {
+  aspect-ratio: 16 / 9;
+}
+@utility img-frame-1-1 {
+  aspect-ratio: 1 / 1;
+}
+@utility img-frame-4-3 {
+  aspect-ratio: 4 / 3;
+}
+@utility img-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+@utility img-contain {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  padding: 0.5rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .img-frame img,
+  .img-frame-lg img {
+    animation: img-reveal var(--dur-med) var(--ease-out-soft) both;
+  }
+}
+@keyframes img-reveal {
+  from {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @utility sticky-cta {
   position: sticky;
   bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 0.5rem);
@@ -56,9 +193,10 @@
   font-weight: 800;
   letter-spacing: -0.01em;
   box-shadow: 0 4px 14px color-mix(in oklab, var(--primary) 35%, transparent);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-fast) ease;
   &:active {
-    transform: scale(0.98);
+    transform: scale(var(--press-scale));
   }
   @media (prefers-reduced-motion: reduce) {
     &:active {
@@ -66,22 +204,144 @@
     }
   }
 }
-@utility card-mobile {
-  border-radius: 1.25rem;
-  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+@utility btn-mobile-secondary {
+  display: inline-flex;
+  min-height: 2.75rem;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.875rem;
+  border: 1px solid var(--frame-border);
   background: var(--card);
-  padding: 1rem;
-  box-shadow: 0 1px 2px color-mix(in oklab, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: transform var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) ease;
+  &:active {
+    transform: scale(var(--press-scale));
+    background: var(--muted);
+  }
 }
+
+@utility hit {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .page-enter {
+    animation: page-enter var(--dur-med) var(--ease-out-soft) both;
+  }
+}
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .stagger-in > * {
+    animation: page-enter var(--dur-med) var(--ease-out-soft) both;
+  }
+  .stagger-in > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-in > *:nth-child(2) { animation-delay: 40ms; }
+  .stagger-in > *:nth-child(3) { animation-delay: 80ms; }
+  .stagger-in > *:nth-child(4) { animation-delay: 120ms; }
+  .stagger-in > *:nth-child(5) { animation-delay: 160ms; }
+  .stagger-in > *:nth-child(6) { animation-delay: 200ms; }
+  .stagger-in > *:nth-child(n + 7) { animation-delay: 240ms; }
+}
+
 @media (max-width: 1023px) {
+  nav.glass.fixed.bottom-0 {
+    height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    background: color-mix(in oklab, var(--card) 88%, transparent);
+    border-top-color: color-mix(in oklab, var(--border) 70%, transparent);
+    box-shadow: 0 -4px 24px color-mix(in oklab, var(--foreground) 6%, transparent);
+  }
+
   input[type="text"],
   input[type="search"],
   input[type="tel"],
   input[type="email"],
   input[type="number"],
+  input[type="password"],
+  input[type="url"],
   input:not([type]),
   textarea,
   select {
-    font-size: 16px;
+    font-size: 16px !important;
+    border-radius: var(--mobile-radius-sm);
+    min-height: 2.75rem;
+  }
+
+  .mobile-shell {
+    padding-inline: var(--mobile-gutter);
+    max-width: 100%;
+  }
+
+  .product-grid,
+  .card-grid {
+    gap: 0.75rem;
+  }
+}
+
+@media (max-width: 1023px) {
+  [data-slot="sheet-content"][data-side="bottom"],
+  [role="dialog"].sheet-bottom {
+    border-top-left-radius: 1.5rem;
+    border-top-right-radius: 1.5rem;
+    max-height: min(90dvh, 900px);
+  }
+}
+
+@utility skeleton-mobile {
+  border-radius: var(--mobile-radius-sm);
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--muted) 80%, transparent) 0%,
+    color-mix(in oklab, var(--muted) 40%, transparent) 50%,
+    color-mix(in oklab, var(--muted) 80%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-mobile {
+    animation: none;
+  }
+  .img-frame img,
+  .img-frame-lg img,
+  .page-enter,
+  .stagger-in > * {
+    animation: none !important;
+  }
+}
+
+.header-elevated {
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  background: color-mix(in oklab, var(--background) 82%, transparent);
+}
+
+@media (max-width: 640px) {
+  .product-card-media {
+    aspect-ratio: 16 / 10;
+    border-bottom: 1px solid var(--frame-border);
   }
 }

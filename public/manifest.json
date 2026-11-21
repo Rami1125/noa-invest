@@ -1,16 +1,17 @@
 {
   "id": "/",
-  "name": "הזמנות+תעודות משלוח",
-  "short_name": "סידור",
-  "description": "מערכת בקרת תעודות משלוח-הזמנות, הצלבת איתוראן וניהול תיקי לקוחות — ח. סבן חומרי בניין בע״מ",
+  "name": "ח. סבן — לוגיסטיקה ותעודות",
+  "short_name": "סבן",
+  "description": "מערכת בקרת תעודות משלוח, הזמנות, מילון לוגיסטי ותיקי לקוחות — ח. סבן חומרי בניין (1994) בע״מ",
   "start_url": "/?mode=standalone",
   "scope": "/",
   "display": "standalone",
-  "orientation": "any",
+  "orientation": "portrait-primary",
   "dir": "rtl",
   "lang": "he",
-  "background_color": "#0F172A",
-  "theme_color": "#1E3A8A",
+  "background_color": "#F3F7FB",
+  "theme_color": "#102A43",
+  "categories": ["business", "productivity"],
   "icons": [
     {
       "src": "/pwa-192x192.png",
