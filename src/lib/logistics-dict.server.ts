@@ -72,7 +72,6 @@ function parseSlang(raw: string): { keywords: string; techInfo: string; techUrl:
 function mapRow(row: unknown[]): LogisticsDictItem | null {
   const sku = cell(row, 0);
   if (!sku) return null;
-  const name = cell(row, 1) || sku;
   const slang = parseSlang(cell(row, 4));
   const depositF = cell(row, 5);
   const depositN = cell(row, 13);
@@ -81,7 +80,7 @@ function mapRow(row: unknown[]): LogisticsDictItem | null {
 
   return {
     sku,
-    name,
+    name: cell(row, 1) || sku,
     category: cell(row, 2),
     unit: cell(row, 3),
     keywords: slang.keywords,
@@ -194,9 +193,28 @@ export async function loadLogisticsDict(force = false): Promise<LogisticsDictPay
     return memoryCache.data;
   }
 
-  const sa = await readViaServiceAccount();
-  const { rows, via } = sa ?? (await readViaPublicCsv());
-  const data = buildPayload(rows, via);
-  memoryCache = { at: Date.now(), data };
-  return data;
+  try {
+    const sa = await readViaServiceAccount();
+    const { rows, via } = sa ?? (await readViaPublicCsv());
+    const data = buildPayload(rows, via);
+    if (data.total > 0) {
+      memoryCache = { at: Date.now(), data };
+    }
+    return data;
+  } catch (e) {
+    console.error("[logistics-dict] load failed:", e instanceof Error ? e.message : e);
+    if (memoryCache?.data) return memoryCache.data;
+    return {
+      items: [],
+      total: 0,
+      withPrice: 0,
+      withImage: 0,
+      categories: [],
+      warehouses: [],
+      drivers: [],
+      generatedAt: new Date().toISOString(),
+      source: "מילון_לוגיסט · שגיאת טעינה",
+      readVia: "error",
+    };
+  }
 }
