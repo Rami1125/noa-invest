@@ -101,19 +101,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
-  useEffect(() => {
-    initScrollCraftMotion();
-    enableAudioOnFirstTouch();
-    setupOneSignalPushListener();
-    void flushPendingApprovals();
-  }, []);
-
   return (
     <html lang="he" dir="rtl">
       <head>
         <HeadContent />
       </head>
-      <body className="min-h-dvh bg-background text-foreground antialiased">
+      <body>
         {children}
         <Scripts />
       </body>
@@ -122,12 +115,44 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
+  const { queryClient } = Route.useRouteContext();
+
+  useEffect(() => {
+    const cleanupScrollCraftMotion = initScrollCraftMotion();
+
+    // 1. Enable audio context on first user interaction for iOS / Android
+    enableAudioOnFirstTouch();
+
+    // 2. Setup OneSignal push foreground notification listener
+    setupOneSignalPushListener();
+
+    // 3. Register service worker for offline support and PWA compliance
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((reg) => console.log("[PWA] Service worker registered successfully:", reg.scope))
+        .catch((err) => console.warn("[PWA] Service worker registration error:", err));
+    }
+
+    // 4. Flush any offline-queued approvals when connected
+    void flushPendingApprovals();
+    const handleOnline = () => {
+      void flushPendingApprovals();
+    };
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      cleanupScrollCraftMotion();
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
+
   return (
-    <>
+    <QueryClientProvider client={queryClient}>
       <AppShell>
         <Outlet />
       </AppShell>
-      <Toaster richColors position="top-center" dir="rtl" />
-    </>
+      <Toaster position="top-center" richColors />
+    </QueryClientProvider>
   );
 }
