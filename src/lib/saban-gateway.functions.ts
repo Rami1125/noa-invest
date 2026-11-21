@@ -6,7 +6,8 @@ import { createServerFn } from "@tanstack/react-start";
 
 const DEFAULT_PROXY = "https://saban-proxy.hsaban2025.workers.dev/";
 const FALLBACK_KEY = "saban_noa_secret_key_2026_enterprise_99";
-
+const EXPECTED_KEY = "saban_secret_token_2026";
+const API_TOKEN = "rami_1a084c2a6b9ed55a";
 function gatewayKey(): string {
   const k =
     process.env["SABAN_GATEWAY_SECRET"] ||
