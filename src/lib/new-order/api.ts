@@ -66,34 +66,18 @@ function parseGasResponse<T>(text: string, status: number, action: string): T {
         `GAS unauthorized — הגדירו API_TOKEN זהה ב-Vercel (API_TOKEN / GAS_API_TOKEN) וב-Apps Script → Project Settings → Script properties. action=${action}`,
       );
     }
+    if (/unknown[_ ]action/i.test(err) || json.error === "unknown_action") {
+      throw new Error(
+        `GAS unknown_action: «${action}» לא מנותב ב-Code.gs. הוסיפו case ב-doGet/doPost, ודאו ש-NewOrder.gs בפרויקט, ופרסו Deploy → New version. ראו apps-script/WIRE_NewOrder_actions.md`,
+      );
+    }
     throw new Error(err);
   }
 
-  // Some legacy endpoints put the payload at the root (no data wrapper)
   if (json.data !== undefined) return json.data;
   const { ok: _o, success: _s, error: _e, action: _a, ...rest } = json as Record<string, unknown>;
   if (Object.keys(rest).length > 0) return rest as T;
-  throw new Error(`GAS ${action} לא החזיר data`);
-}
-
-async function postGas<T>(action: string, body: Record<string, unknown> = {}): Promise<T> {
-  const url = new URL(gasUrl());
-  url.searchParams.set("action", action);
-  const token = apiToken();
-  if (token) url.searchParams.set("token", token);
-
-  const res = await fetch(url.toString(), {
-    method: "POST",
-    redirect: "follow",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ action, token, ...body }),
-  });
-
-  const text = await res.text();
-  return parseGasResponse<T>(text, res.status, action);
+  throw new Error(`GAS ${action}: אין data בתשובה`);
 }
 
 async function getGas<T>(action: string): Promise<T> {
@@ -112,6 +96,22 @@ async function getGas<T>(action: string): Promise<T> {
   return parseGasResponse<T>(text, res.status, action);
 }
 
+async function postGas<T>(action: string, body: Record<string, unknown>): Promise<T> {
+  const token = apiToken();
+  const res = await fetch(gasUrl(), {
+    method: "POST",
+    redirect: "follow",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ ...body, action, token }),
+  });
+  const text = await res.text();
+  return parseGasResponse<T>(text, res.status, action);
+}
+
 /** Bootstrap: לקוחות + אתרים + מילון (cache בצד GAS ל-5 דק׳) */
 export const getOrderBootstrapFn = createServerFn({ method: "POST" }).handler(
   async (): Promise<OrderBootstrapData> => {
@@ -121,48 +121,26 @@ export const getOrderBootstrapFn = createServerFn({ method: "POST" }).handler(
       try {
         return await postGas<OrderBootstrapData>("getOrderBootstrapData", {});
       } catch {
-        throw first;
+        throw first instanceof Error ? first : new Error(String(first));
       }
     }
   },
 );
 
 export const injectNewOrderFn = createServerFn({ method: "POST" })
-  .validator((data: InjectNewOrderPayload) => data)
+  .inputValidator((d: InjectNewOrderPayload) => d)
   .handler(async ({ data }): Promise<InjectNewOrderResult> => {
-    if (!data.customerNo?.trim()) throw new Error("חסר מספר לקוח");
-    if (!data.customerName?.trim()) throw new Error("חסר שם לקוח");
-    if (!data.address?.trim()) throw new Error("חסרה כתובת אספקה");
-    if (!data.itemsJson || data.itemsJson === "[]") throw new Error("סל המוצרים ריק");
-
-    if (data.attachment) {
-      const allowed = ["application/pdf", "image/jpeg", "image/png"];
-      if (!allowed.includes(data.attachment.mimeType)) {
-        throw new Error("סוג קובץ לא נתמך (PDF / JPG / PNG בלבד)");
-      }
-      const approxBytes = Math.floor((data.attachment.base64.length * 3) / 4);
-      if (approxBytes > 10 * 1024 * 1024) {
-        throw new Error("הקובץ גדול מ-10MB");
-      }
-    }
-
     return await postGas<InjectNewOrderResult>("injectNewOrder", {
-      ...data,
+      ...(data as unknown as Record<string, unknown>),
     });
   });
 
 export const updateOrderCustomerNumberFn = createServerFn({ method: "POST" })
-  .validator((data: UpdateCustomerNumberPayload) => data)
+  .inputValidator((d: UpdateCustomerNumberPayload) => d)
   .handler(async ({ data }): Promise<UpdateCustomerNumberResult> => {
-    if (!data.orderId?.trim()) throw new Error("חסר מזהה הזמנה");
-    if (!data.newCustomerNo?.trim()) throw new Error("חסר מספר לקוח חדש");
-    if (data.oldCustomerNo === data.newCustomerNo) {
-      throw new Error("המספר החדש זהה לישן");
-    }
     return await postGas<UpdateCustomerNumberResult>("updateOrderCustomerNumber", {
-      ...data,
+      ...(data as unknown as Record<string, unknown>),
     });
   });
 
-// silence unused type import if only used in comments
-void (0 as unknown as GasEnvelope<unknown>);
+export type { GasEnvelope };
