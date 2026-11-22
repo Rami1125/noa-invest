@@ -5,7 +5,7 @@
 
 export type WarehouseCode = "החרש 10" | "התלמיד 6" | string;
 export type RecommendedDriver = "חכמת" | "עלי" | string;
-export type DepositCode = "60002" | "60060" | "";
+export type DepositCode = "60002" | "60060" | "60006" | "";
 
 /** לקוח מאוחד מחיפוש bootstrap */
 export type OrderCustomer = {
@@ -22,7 +22,6 @@ export type OrderCustomer = {
   comaxLinkedIds: string[];
   driveFolderUrl: string;
   sites: CustomerSite[];
-  /** קוד זמני 500500 או מספר שטרם הוחלף בקומקס */
   isPendingComax: boolean;
 };
 
@@ -35,7 +34,6 @@ export type CustomerSite = {
   defaultUnloadType: string;
 };
 
-/** שורת מילון_לוגיסט */
 export type DictProduct = {
   sku: string;
   officialName: string;
@@ -77,28 +75,54 @@ export type NewOrderDraft = {
 };
 
 export type WeightLimits = {
-  /** 2.0 טון — פריקה ידנית / גישה צרה */
+  /** 2.0 טון / 2,000 ק"ג — פריקה ידנית (עד 50 שקים) */
   manualTons: number;
-  /** 4.46 טון — פלטה עלי / מלגזה באתר */
+  manualKg: number;
+  manualMaxBags: number;
+  /** 4.46 טון / 4,460 ק"ג — פלטה עלי (איסוזו FRR90) */
   aliTons: number;
-  /** 10.2 טון — מנוף חכמת (תקרת בטיחות) */
+  aliKg: number;
+  /** 10.2 טון / 10,200 ק"ג — מנוף חכמת מבצעי */
   hakhmatTons: number;
+  hakhmatKg: number;
+  /** מגבלת רישיון קשיחה חכמת — 12,072 ק"ג */
+  hakhmatLicenseKg: number;
 };
 
-/** ספי תצוגה לסרגל עומס (% מניצולת) */
+/** ספי תצוגה לסרגל עומס (% מניצולת מול תקרת הרכב הפעיל) */
 export const WEIGHT_DISPLAY_THRESHOLDS = {
-  /** אזהרה / upsell — צהוב */
+  /** מתחת: OK (ירוק) · מ-75% כולל עד 100%: WARNING_UPSELL */
   warnPct: 75,
-  /** חריגה — אדום */
+  /** מעל 100%: OVERLOAD */
   dangerPct: 100,
 } as const;
 
 export const WEIGHT_LIMITS: WeightLimits = {
   manualTons: 2.0,
+  manualKg: 2000,
+  manualMaxBags: 50,
   aliTons: 4.46,
+  aliKg: 4460,
   hakhmatTons: 10.2,
+  hakhmatKg: 10200,
+  hakhmatLicenseKg: 12072,
 };
 
+/** מק"טי בלות אגרגטים — חובה מנוף חכמת, אסור על פלטה */
+export const AGGREGATE_BALE_SKUS = [
+  "11501",
+  "11511",
+  "11551",
+  "11506",
+  "11540",
+  "11570",
+] as const;
+
+export type AssignedVehicle = "MANUAL" | "ALI_FLATBED" | "HIKMAT_CRANE";
+
+export type ThresholdStatus = "OK" | "WARNING_UPSELL" | "OVERLOAD";
+
+/** תואם UI קיים */
 export type WeightSafetyLevel = "ok" | "warn" | "danger";
 
 export type OrderBootstrapData = {
