@@ -1,4 +1,5 @@
 import {
+  WEIGHT_DISPLAY_THRESHOLDS,
   WEIGHT_LIMITS,
   type CartLine,
   type RecommendedDriver,
@@ -44,11 +45,11 @@ export function weightSafety(
     return { level: "ok", pct: 0, labelHe: "אין מגבלה מוגדרת" };
   }
   const pct = Math.round((tons / limitTons) * 1000) / 10;
-  if (pct >= 100) {
-    return { level: "danger", pct, labelHe: "חריגה" };
+  if (pct >= WEIGHT_DISPLAY_THRESHOLDS.dangerPct) {
+    return { level: "danger", pct, labelHe: "חריגה — מעל תקרת ההעמסה" };
   }
-  if (pct >= 80) {
-    return { level: "warn", pct, labelHe: "קרוב למגבלה" };
+  if (pct >= WEIGHT_DISPLAY_THRESHOLDS.warnPct) {
+    return { level: "warn", pct, labelHe: "קרוב למגבלה — נצלו יתרת הובלה או פצלו" };
   }
   return { level: "ok", pct, labelHe: "בתוך המגבלה" };
 }

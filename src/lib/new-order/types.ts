@@ -68,8 +68,8 @@ export type NewOrderDraft = {
   contactName: string;
   deliveryDate: string;
   deliveryWindow: string;
-  warehouse: WarehouseCode;
-  driver: RecommendedDriver;
+  warehouse: string;
+  driver: string;
   notes: string;
   lines: CartLine[];
   attachment: OrderAttachment | null;
@@ -77,15 +77,26 @@ export type NewOrderDraft = {
 };
 
 export type WeightLimits = {
-  /** 4.4 טון — פלטה עלי */
+  /** 2.0 טון — פריקה ידנית / גישה צרה */
+  manualTons: number;
+  /** 4.46 טון — פלטה עלי / מלגזה באתר */
   aliTons: number;
-  /** 10.8 טון — מנוף חכמת */
+  /** 10.2 טון — מנוף חכמת (תקרת בטיחות) */
   hakhmatTons: number;
 };
 
+/** ספי תצוגה לסרגל עומס (% מניצולת) */
+export const WEIGHT_DISPLAY_THRESHOLDS = {
+  /** אזהרה / upsell — צהוב */
+  warnPct: 75,
+  /** חריגה — אדום */
+  dangerPct: 100,
+} as const;
+
 export const WEIGHT_LIMITS: WeightLimits = {
-  aliTons: 4.4,
-  hakhmatTons: 10.8,
+  manualTons: 2.0,
+  aliTons: 4.46,
+  hakhmatTons: 10.2,
 };
 
 export type WeightSafetyLevel = "ok" | "warn" | "danger";

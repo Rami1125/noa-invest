@@ -1,4 +1,5 @@
-/** מגבלות העמסה לפי תנאי פריקה — פורטל לקוח */
+/** מגבלות העמסה לפי תנאי פריקה — פורטל לקוח (מסונכרן עם WEIGHT_LIMITS) */
+import { WEIGHT_DISPLAY_THRESHOLDS, WEIGHT_LIMITS } from "@/lib/new-order/types";
 
 export type UnloadMode = "manual" | "forklift" | "crane9" | "crane15";
 
@@ -12,35 +13,35 @@ export const UNLOAD_OPTIONS: {
   {
     id: "manual",
     label: "פריקה ידנית / גישה צרה",
-    desc: "עד 2.0 טון · ללא בלות כבדות",
-    limitTons: 2.0,
+    desc: `עד ${WEIGHT_LIMITS.manualTons} טון · ללא בלות כבדות`,
+    limitTons: WEIGHT_LIMITS.manualTons,
     defaultDriver: "עלי",
   },
   {
     id: "forklift",
     label: "מלגזה באתר",
-    desc: "עד 4.46 טון · פלטה",
-    limitTons: 4.46,
+    desc: `עד ${WEIGHT_LIMITS.aliTons} טון · פלטה`,
+    limitTons: WEIGHT_LIMITS.aliTons,
     defaultDriver: "עלי",
   },
   {
     id: "crane9",
     label: "מנוף סבן 9 מ׳",
-    desc: "עד 10.2 טון · בלות אגרגטים",
-    limitTons: 10.2,
+    desc: `עד ${WEIGHT_LIMITS.hakhmatTons} טון · בלות אגרגטים`,
+    limitTons: WEIGHT_LIMITS.hakhmatTons,
     defaultDriver: "חכמת",
   },
   {
     id: "crane15",
     label: "מנוף סבן 15 מ׳ (גג)",
-    desc: "עד 10.2 טון · הנפה לגג",
-    limitTons: 10.2,
+    desc: `עד ${WEIGHT_LIMITS.hakhmatTons} טון · הנפה לגג`,
+    limitTons: WEIGHT_LIMITS.hakhmatTons,
     defaultDriver: "חכמת",
   },
 ];
 
 export function limitForUnload(mode: UnloadMode): number {
-  return UNLOAD_OPTIONS.find((o) => o.id === mode)?.limitTons ?? 4.46;
+  return UNLOAD_OPTIONS.find((o) => o.id === mode)?.limitTons ?? WEIGHT_LIMITS.aliTons;
 }
 
 export function driverForUnload(mode: UnloadMode): "עלי" | "חכמת" {
@@ -49,7 +50,9 @@ export function driverForUnload(mode: UnloadMode): "עלי" | "חכמת" {
 
 export function vehicleLabel(mode: UnloadMode, tons: number): string {
   if (mode === "manual" || mode === "forklift") {
-    return tons > 4.46 ? "משאית מנוף (חריגת פלטה)" : "משאית חלוקה / פלטה (עלי)";
+    return tons > WEIGHT_LIMITS.aliTons
+      ? "משאית מנוף (חריגת פלטה)"
+      : "משאית חלוקה / פלטה (עלי)";
   }
   return "משאית מנוף כבדה (חכמת)";
 }
@@ -62,3 +65,6 @@ export function utilizationPct(tons: number, limit: number): number {
   if (limit <= 0) return 0;
   return Math.min(100, Math.round((tons / limit) * 1000) / 10);
 }
+
+/** סף להצעת upsell / אזהרת ניצולת */
+export const VEHICLE_UPSELL_PCT = WEIGHT_DISPLAY_THRESHOLDS.warnPct;
