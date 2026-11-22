@@ -20,6 +20,7 @@ import { Route as IturanRouteImport } from './routes/ituran'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as NewOrderRouteImport } from './routes/new-order'
+import { Route as PortalRouteImport } from './routes/portal'
 import { Route as PresentationsRouteImport } from './routes/presentations'
 import { Route as TechnicalAdvisorRouteImport } from './routes/technical-advisor'
 import { Route as TachographRouteImport } from './routes/tachograph'
@@ -41,6 +42,7 @@ const IturanRoute = IturanRouteImport.update({ id: '/ituran', path: '/ituran', g
 const NotesRoute = NotesRouteImport.update({ id: '/notes', path: '/notes', getParentRoute: () => rootRouteImport } as any)
 const OrdersRoute = OrdersRouteImport.update({ id: '/orders', path: '/orders', getParentRoute: () => rootRouteImport } as any)
 const NewOrderRoute = NewOrderRouteImport.update({ id: '/new-order', path: '/new-order', getParentRoute: () => rootRouteImport } as any)
+const PortalRoute = PortalRouteImport.update({ id: '/portal', path: '/portal', getParentRoute: () => rootRouteImport } as any)
 const PresentationsRoute = PresentationsRouteImport.update({ id: '/presentations', path: '/presentations', getParentRoute: () => rootRouteImport } as any)
 const TechnicalAdvisorRoute = TechnicalAdvisorRouteImport.update({ id: '/technical-advisor', path: '/technical-advisor', getParentRoute: () => rootRouteImport } as any)
 const TachographRoute = TachographRouteImport.update({ id: '/tachograph', path: '/tachograph', getParentRoute: () => rootRouteImport } as any)
@@ -63,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/notes': typeof NotesRouteWithChildren
   '/orders': typeof OrdersRoute
   '/new-order': typeof NewOrderRoute
+  '/portal': typeof PortalRoute
   '/presentations': typeof PresentationsRoute
   '/technical-advisor': typeof TechnicalAdvisorRoute
   '/tachograph': typeof TachographRoute
@@ -85,6 +88,7 @@ export interface FileRoutesByTo {
   '/notes': typeof NotesRouteWithChildren
   '/orders': typeof OrdersRoute
   '/new-order': typeof NewOrderRoute
+  '/portal': typeof PortalRoute
   '/presentations': typeof PresentationsRoute
   '/technical-advisor': typeof TechnicalAdvisorRoute
   '/tachograph': typeof TachographRoute
@@ -108,6 +112,7 @@ export interface FileRoutesById {
   '/notes': typeof NotesRouteWithChildren
   '/orders': typeof OrdersRoute
   '/new-order': typeof NewOrderRoute
+  '/portal': typeof PortalRoute
   '/presentations': typeof PresentationsRoute
   '/technical-advisor': typeof TechnicalAdvisorRoute
   '/tachograph': typeof TachographRoute
@@ -119,10 +124,10 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/canvas' | '/chat' | '/notebook' | '/logistics-dict' | '/customers' | '/harel' | '/inquiry' | '/ituran' | '/notes' | '/orders' | '/new-order' | '/presentations' | '/technical-advisor' | '/tachograph' | '/api/backend' | '/api/split-scan' | '/customers/$id' | '/inquiry/$id' | '/notes/$id'
+  fullPaths: '/' | '/canvas' | '/chat' | '/notebook' | '/logistics-dict' | '/customers' | '/harel' | '/inquiry' | '/ituran' | '/notes' | '/orders' | '/new-order' | '/portal' | '/presentations' | '/technical-advisor' | '/tachograph' | '/api/backend' | '/api/split-scan' | '/customers/$id' | '/inquiry/$id' | '/notes/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/canvas' | '/chat' | '/notebook' | '/logistics-dict' | '/customers' | '/harel' | '/inquiry' | '/ituran' | '/notes' | '/orders' | '/new-order' | '/presentations' | '/technical-advisor' | '/tachograph' | '/api/backend' | '/api/split-scan' | '/customers/$id' | '/inquiry/$id' | '/notes/$id'
-  id: '__root__' | '/' | '/canvas' | '/chat' | '/notebook' | '/logistics-dict' | '/customers' | '/harel' | '/inquiry' | '/ituran' | '/notes' | '/orders' | '/new-order' | '/presentations' | '/technical-advisor' | '/tachograph' | '/api/backend' | '/api/split-scan' | '/customers/$id' | '/inquiry/$id' | '/notes/$id'
+  to: '/' | '/canvas' | '/chat' | '/notebook' | '/logistics-dict' | '/customers' | '/harel' | '/inquiry' | '/ituran' | '/notes' | '/orders' | '/new-order' | '/portal' | '/presentations' | '/technical-advisor' | '/tachograph' | '/api/backend' | '/api/split-scan' | '/customers/$id' | '/inquiry/$id' | '/notes/$id'
+  id: '__root__' | '/' | '/canvas' | '/chat' | '/notebook' | '/logistics-dict' | '/customers' | '/harel' | '/inquiry' | '/ituran' | '/notes' | '/orders' | '/new-order' | '/portal' | '/presentations' | '/technical-advisor' | '/tachograph' | '/api/backend' | '/api/split-scan' | '/customers/$id' | '/inquiry/$id' | '/notes/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -138,6 +143,7 @@ export interface RootRouteChildren {
   NotesRoute: typeof NotesRouteWithChildren
   OrdersRoute: typeof OrdersRoute
   NewOrderRoute: typeof NewOrderRoute
+  PortalRoute: typeof PortalRoute
   PresentationsRoute: typeof PresentationsRoute
   TechnicalAdvisorRoute: typeof TechnicalAdvisorRoute
   TachographRoute: typeof TachographRoute
@@ -145,41 +151,19 @@ export interface RootRouteChildren {
   ApiSplitScanRoute: typeof ApiSplitScanRoute
 }
 
-declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {
-    '/': { id: '/'; path: '/'; fullPath: '/'; preLoaderRoute: typeof IndexRouteImport; parentRoute: typeof rootRouteImport }
-    '/canvas': { id: '/canvas'; path: '/canvas'; fullPath: '/canvas'; preLoaderRoute: typeof CanvasRouteImport; parentRoute: typeof rootRouteImport }
-    '/chat': { id: '/chat'; path: '/chat'; fullPath: '/chat'; preLoaderRoute: typeof ChatRouteImport; parentRoute: typeof rootRouteImport }
-    '/notebook': { id: '/notebook'; path: '/notebook'; fullPath: '/notebook'; preLoaderRoute: typeof NotebookRouteImport; parentRoute: typeof rootRouteImport }
-    '/logistics-dict': { id: '/logistics-dict'; path: '/logistics-dict'; fullPath: '/logistics-dict'; preLoaderRoute: typeof LogisticsDictRouteImport; parentRoute: typeof rootRouteImport }
-    '/customers': { id: '/customers'; path: '/customers'; fullPath: '/customers'; preLoaderRoute: typeof CustomersRouteImport; parentRoute: typeof rootRouteImport }
-    '/harel': { id: '/harel'; path: '/harel'; fullPath: '/harel'; preLoaderRoute: typeof HarelRouteImport; parentRoute: typeof rootRouteImport }
-    '/inquiry': { id: '/inquiry'; path: '/inquiry'; fullPath: '/inquiry'; preLoaderRoute: typeof InquiryRouteImport; parentRoute: typeof rootRouteImport }
-    '/ituran': { id: '/ituran'; path: '/ituran'; fullPath: '/ituran'; preLoaderRoute: typeof IturanRouteImport; parentRoute: typeof rootRouteImport }
-    '/notes': { id: '/notes'; path: '/notes'; fullPath: '/notes'; preLoaderRoute: typeof NotesRouteImport; parentRoute: typeof rootRouteImport }
-    '/orders': { id: '/orders'; path: '/orders'; fullPath: '/orders'; preLoaderRoute: typeof OrdersRouteImport; parentRoute: typeof rootRouteImport }
-    '/new-order': { id: '/new-order'; path: '/new-order'; fullPath: '/new-order'; preLoaderRoute: typeof NewOrderRouteImport; parentRoute: typeof rootRouteImport }
-    '/presentations': { id: '/presentations'; path: '/presentations'; fullPath: '/presentations'; preLoaderRoute: typeof PresentationsRouteImport; parentRoute: typeof rootRouteImport }
-    '/technical-advisor': { id: '/technical-advisor'; path: '/technical-advisor'; fullPath: '/technical-advisor'; preLoaderRoute: typeof TechnicalAdvisorRouteImport; parentRoute: typeof rootRouteImport }
-    '/tachograph': { id: '/tachograph'; path: '/tachograph'; fullPath: '/tachograph'; preLoaderRoute: typeof TachographRouteImport; parentRoute: typeof rootRouteImport }
-    '/api/backend': { id: '/api/backend'; path: '/api/backend'; fullPath: '/api/backend'; preLoaderRoute: typeof ApiBackendRouteImport; parentRoute: typeof rootRouteImport }
-    '/api/split-scan': { id: '/api/split-scan'; path: '/api/split-scan'; fullPath: '/api/split-scan'; preLoaderRoute: typeof ApiSplitScanRouteImport; parentRoute: typeof rootRouteImport }
-    '/customers/$id': { id: '/customers/$id'; path: '/$id'; fullPath: '/customers/$id'; preLoaderRoute: typeof CustomersIdRouteImport; parentRoute: typeof CustomersRoute }
-    '/inquiry/$id': { id: '/inquiry/$id'; path: '/$id'; fullPath: '/inquiry/$id'; preLoaderRoute: typeof InquiryIdRouteImport; parentRoute: typeof InquiryRoute }
-    '/notes/$id': { id: '/notes/$id'; path: '/$id'; fullPath: '/notes/$id'; preLoaderRoute: typeof NotesIdRouteImport; parentRoute: typeof NotesRoute }
-  }
+const CustomersRouteChildren: { CustomersIdRoute: typeof CustomersIdRoute } = {
+  CustomersIdRoute: CustomersIdRoute,
 }
-
-interface CustomersRouteChildren { CustomersIdRoute: typeof CustomersIdRoute }
-const CustomersRouteChildren: CustomersRouteChildren = { CustomersIdRoute: CustomersIdRoute }
 const CustomersRouteWithChildren = CustomersRoute._addFileChildren(CustomersRouteChildren)
 
-interface InquiryRouteChildren { InquiryIdRoute: typeof InquiryIdRoute }
-const InquiryRouteChildren: InquiryRouteChildren = { InquiryIdRoute: InquiryIdRoute }
+const InquiryRouteChildren: { InquiryIdRoute: typeof InquiryIdRoute } = {
+  InquiryIdRoute: InquiryIdRoute,
+}
 const InquiryRouteWithChildren = InquiryRoute._addFileChildren(InquiryRouteChildren)
 
-interface NotesRouteChildren { NotesIdRoute: typeof NotesIdRoute }
-const NotesRouteChildren: NotesRouteChildren = { NotesIdRoute: NotesIdRoute }
+const NotesRouteChildren: { NotesIdRoute: typeof NotesIdRoute } = {
+  NotesIdRoute: NotesIdRoute,
+}
 const NotesRouteWithChildren = NotesRoute._addFileChildren(NotesRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
@@ -195,6 +179,7 @@ const rootRouteChildren: RootRouteChildren = {
   NotesRoute: NotesRouteWithChildren,
   OrdersRoute: OrdersRoute,
   NewOrderRoute: NewOrderRoute,
+  PortalRoute: PortalRoute,
   PresentationsRoute: PresentationsRoute,
   TechnicalAdvisorRoute: TechnicalAdvisorRoute,
   TachographRoute: TachographRoute,
@@ -204,13 +189,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
