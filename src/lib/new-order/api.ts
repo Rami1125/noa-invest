@@ -42,8 +42,15 @@ function parseGasResponse<T>(text: string, status: number, action: string): T {
     throw new Error(`GAS ${action}: תשובה ריקה (${status})`);
   }
   if (trimmed.startsWith("<") || /<!DOCTYPE/i.test(trimmed) || /<html/i.test(trimmed)) {
+    const looksLogin =
+      /accounts\.google\.com/i.test(trimmed) ||
+      /Sign in/i.test(trimmed) ||
+      /היכנס/i.test(trimmed) ||
+      /script.google.com/i.test(trimmed);
     throw new Error(
-      `GAS החזיר דף HTML במקום JSON — בדקו Deploy (Anyone) ו-API_TOKEN תואם ב-Vercel וב-Script Properties. action=${action}`,
+      looksLogin
+        ? `GAS החזיר דף התחברות HTML (אין הרשאת Web App). ב-Apps Script: Deploy → Manage deployments → Who has access: Anyone · Execute as: Me · New version. action=${action}`
+        : `GAS החזיר HTML במקום JSON — בדקו ש-GAS_URL מסתיים ב-/exec (לא /dev), Deploy=Anyone, ו-API_TOKEN זהה ב-Vercel וב-Script Properties. action=${action}`,
     );
   }
 
@@ -96,18 +103,50 @@ async function getGas<T>(action: string): Promise<T> {
   return parseGasResponse<T>(text, res.status, action);
 }
 
+/**
+ * POST ל-GAS עם טיפול ב-302: redirect:follow על POST הופך לעיתים ל-GET
+ * ומחזיר דף HTML (login / Google shell) במקום JSON.
+ */
 async function postGas<T>(action: string, body: Record<string, unknown>): Promise<T> {
   const token = apiToken();
-  const res = await fetch(gasUrl(), {
+  const payload = JSON.stringify({ ...body, action, token });
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const url0 = gasUrl();
+  let res = await fetch(url0, {
     method: "POST",
-    redirect: "follow",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ ...body, action, token }),
+    redirect: "manual",
+    headers,
+    body: payload,
   });
+
+  let hops = 0;
+  while (res.status >= 300 && res.status < 400 && hops < 5) {
+    const loc = res.headers.get("location") || res.headers.get("Location");
+    if (!loc) break;
+    const next = new URL(loc, url0).toString();
+    res = await fetch(next, {
+      method: "POST",
+      redirect: "manual",
+      headers,
+      body: payload,
+    });
+    hops += 1;
+  }
+
+  if (res.status >= 300 && res.status < 400) {
+    res = await fetch(url0, {
+      method: "POST",
+      redirect: "follow",
+      headers,
+      body: payload,
+    });
+  }
+
   const text = await res.text();
   return parseGasResponse<T>(text, res.status, action);
 }
