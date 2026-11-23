@@ -38,13 +38,22 @@ function onlyDigits(s: string): string {
   return String(s || "").replace(/\D/g, "");
 }
 
+/** נרמול נייד ישראלי: 9725... / 05... / 5... → להשוואה */
+function normalizeIlPhone(s: string): string {
+  let d = onlyDigits(s);
+  if (d.startsWith("972")) d = d.slice(3);
+  if (d.startsWith("0")) d = d.slice(1);
+  return d;
+}
+
 function findByPhone(customers: OrderCustomer[], phone: string): OrderCustomer | null {
-  const d = onlyDigits(phone);
-  if (d.length < 9) return null;
+  const d = normalizeIlPhone(phone);
+  if (d.length < 8) return null;
   for (const c of customers) {
     for (const p of c.phones || []) {
-      const pd = onlyDigits(p);
-      if (pd && (pd.endsWith(d) || d.endsWith(pd) || pd.includes(d))) return c;
+      const pd = normalizeIlPhone(p);
+      if (!pd) continue;
+      if (pd === d || pd.endsWith(d) || d.endsWith(pd)) return c;
     }
   }
   return null;
@@ -99,7 +108,6 @@ export function CustomerOrderPortal() {
   const driver = driverForUnload(unload);
   const warehouse = useMemo(() => recommendWarehouse(lines), [lines]);
   const autoDep = useMemo(() => computeAutoDeposits(lines), [lines]);
-  const siteHint = customer?.sites?.[0];
 
   const addQty = (p: DictProduct, delta: number) => {
     setLines((prev) => {
@@ -137,7 +145,11 @@ export function CustomerOrderPortal() {
   const tryIdentify = () => {
     const c = findByPhone(customers, phone);
     if (!c) {
-      setError("לא נמצא לקוח עם מספר זה במאגר. פנו לסידור או השתמשו בהזמנה פנימית.");
+      setError(
+        customers.length === 0
+          ? "מאגר לקוחות ריק — רעננו את הדף או בדקו GAS_URL / API_TOKEN ב-Vercel"
+          : "לא נמצא לקוח עם מספר זה במאגר שנטען. נסו שם / לקוח חדש.",
+      );
       return;
     }
     setError("");
@@ -231,6 +243,7 @@ export function CustomerOrderPortal() {
             לא ניתן לטעון נתונים
           </div>
           <p className="mt-1 text-sm">{(bootstrap.error as Error).message}</p>
+          <p className="mt-2 text-xs">בדקו GAS_URL + API_TOKEN ב-Vercel, ואז רעננו.</p>
         </div>
       </div>
     );
@@ -248,6 +261,11 @@ export function CustomerOrderPortal() {
         {!verified ? (
           <section className="rounded-2xl border border-[#DCE6EF] bg-white p-4 shadow-sm">
             <h2 className="font-extrabold">כניסה עם נייד</h2>
+            <p className="mt-1 text-xs text-[#486581]">
+              {customers.length
+                ? `${customers.length} לקוחות במאגר`
+                : "מאגר לקוחות ריק — בדקו חיבור GAS / רעננו את הדף"}
+            </p>
             <div className="mt-3 flex gap-2">
               <input
                 className="min-h-12 flex-1 rounded-xl border border-[#DCE6EF] px-3"
@@ -256,7 +274,11 @@ export function CustomerOrderPortal() {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
               />
-              <button type="button" className="min-h-12 rounded-xl bg-[#102A43] px-4 font-bold text-white" onClick={tryIdentify}>
+              <button
+                type="button"
+                className="min-h-12 rounded-xl bg-[#102A43] px-4 font-bold text-white"
+                onClick={tryIdentify}
+              >
                 <Phone className="h-5 w-5" />
               </button>
             </div>
@@ -265,88 +287,104 @@ export function CustomerOrderPortal() {
                 <input
                   className="min-h-12 flex-1 rounded-xl border border-[#DCE6EF] px-3"
                   inputMode="numeric"
-                  placeholder="קוד"
+                  placeholder="קוד (כל 4 ספרות בדמו)"
                   value={otp}
                   onChange={(e) => setOtp(e.target.value)}
                 />
-                <button type="button" className="min-h-12 rounded-xl bg-[#1769AA] px-4 font-bold text-white" onClick={verifyOtp}>
+                <button
+                  type="button"
+                  className="min-h-12 rounded-xl bg-[#1769AA] px-4 font-bold text-white"
+                  onClick={verifyOtp}
+                >
                   אישור
                 </button>
               </div>
             )}
             {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
             <p className="mt-3 text-xs text-[#5B6B7C]">
-              צוות? <Link to="/new-order" className="font-bold text-[#1769AA] underline">סטודיו הזמנה</Link>
+              צוות?{" "}
+              <Link to="/new-order" className="font-bold text-[#1769AA] underline">
+                סטודיו הזמנה
+              </Link>
             </p>
           </section>
         ) : (
-          <>
-            <section className="rounded-2xl border border-[#DCE6EF] bg-white p-4">
-              <p className="text-sm font-bold">{customer?.name} · {customer?.customerNo}</p>
-              <input
-                className="mt-2 min-h-12 w-full rounded-xl border border-[#DCE6EF] px-3"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="כתובת אספקה"
-              />
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {UNLOAD_OPTIONS.map((o) => (
-                  <button
-                    key={o.id}
-                    type="button"
-                    onClick={() => setUnload(o.id)}
-                    className={cn(
-                      "min-h-14 rounded-2xl border px-3 py-3 text-right text-sm font-bold",
-                      unload === o.id ? "border-[#1769AA] bg-[#E6F6FF]" : "border-[#DCE6EF]",
-                    )}
-                  >
-                    {o.label}
-                  </button>
-                ))}
+          <section className="rounded-2xl border border-[#DCE6EF] bg-white p-4">
+            <p className="text-sm font-bold">
+              {customer?.name} · {customer?.customerNo}
+            </p>
+            <input
+              className="mt-2 min-h-12 w-full rounded-xl border border-[#DCE6EF] px-3"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="כתובת אספקה"
+            />
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {UNLOAD_OPTIONS.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => setUnload(o.id)}
+                  className={cn(
+                    "min-h-14 rounded-2xl border px-3 py-3 text-right text-sm font-bold",
+                    unload === o.id ? "border-[#1769AA] bg-[#E6F6FF]" : "border-[#DCE6EF]",
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {quickProducts.map((p) => (
+                <button
+                  key={p.sku}
+                  type="button"
+                  className="rounded-xl border border-[#DCE6EF] px-3 py-2 text-xs font-bold"
+                  onClick={() => addQty(p, stepQty(p))}
+                >
+                  +{stepQty(p)} {p.officialName}
+                </button>
+              ))}
+            </div>
+            <textarea
+              className="mt-3 min-h-[4rem] w-full rounded-xl border border-[#DCE6EF] px-3 py-2 text-sm"
+              placeholder="הדבק רשימה מוואטסאפ"
+              value={paste}
+              onChange={(e) => setPaste(e.target.value)}
+            />
+            <button
+              type="button"
+              className="mt-2 min-h-11 w-full rounded-xl border border-[#1769AA] font-bold text-[#1769AA]"
+              onClick={applyPaste}
+            >
+              הוסף מהטקסט
+            </button>
+            <ul className="mt-3 space-y-1 text-sm">
+              {lines.map((l) => (
+                <li key={l.key} className="flex justify-between gap-2">
+                  <span>{l.product.officialName}</span>
+                  <span className="font-bold">{l.qty}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs font-bold text-[#164E78]">
+              <Truck className="inline h-4 w-4" /> {tons.toFixed(2)} ט׳ · {vehicleLabel(unload, tons)}
+            </p>
+            {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+            {result && (
+              <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-emerald-900">
+                <Check className="inline h-4 w-4" /> הזמנה {result.orderId}
+                <a
+                  className="mt-2 flex min-h-11 items-center justify-center rounded-xl bg-[#25D366] font-bold text-white"
+                  href={`https://wa.me/?text=${encodeURIComponent(result.whatsappMessage || "")}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <MessageCircle className="ml-1 h-4 w-4" /> וואטסאפ
+                </a>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {quickProducts.map((p) => (
-                  <button
-                    key={p.sku}
-                    type="button"
-                    className="rounded-xl border border-[#DCE6EF] px-3 py-2 text-xs font-bold"
-                    onClick={() => addQty(p, stepQty(p))}
-                  >
-                    +{stepQty(p)} {p.officialName}
-                  </button>
-                ))}
-              </div>
-              <textarea
-                className="mt-3 min-h-[4rem] w-full rounded-xl border border-[#DCE6EF] px-3 py-2 text-sm"
-                placeholder="הדבק רשימה מוואטסאפ"
-                value={paste}
-                onChange={(e) => setPaste(e.target.value)}
-              />
-              <button type="button" className="mt-2 min-h-11 w-full rounded-xl border border-[#1769AA] font-bold text-[#1769AA]" onClick={applyPaste}>
-                הוסף מהטקסט
-              </button>
-              <ul className="mt-3 space-y-1 text-sm">
-                {lines.map((l) => (
-                  <li key={l.key} className="flex justify-between gap-2">
-                    <span>{l.product.officialName}</span>
-                    <span className="font-bold">{l.qty}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-xs font-bold text-[#164E78]">
-                <Truck className="inline h-4 w-4" /> {tons.toFixed(2)} ט׳ · {vehicleLabel(unload, tons)}
-              </p>
-              {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
-              {result && (
-                <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-emerald-900">
-                  <Check className="inline h-4 w-4" /> הזמנה {result.orderId}
-                  <a className="mt-2 flex min-h-11 items-center justify-center rounded-xl bg-[#25D366] font-bold text-white" href={`https://wa.me/?text=${encodeURIComponent(result.whatsappMessage || "")}`} target="_blank" rel="noreferrer">
-                    <MessageCircle className="ml-1 h-4 w-4" /> וואטסאפ
-                  </a>
-                </div>
-              )}
-            </section>
-          </>
+            )}
+          </section>
         )}
       </main>
       {verified && !result && (
