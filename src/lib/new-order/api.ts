@@ -39,48 +39,22 @@ type LooseEnvelope<T> = {
 function parseGasResponse<T>(text: string, status: number, action: string): T {
   const trimmed = text.trim();
   if (!trimmed) {
-    throw new Error(`GAS ${action}: תשובה ריקה (${status})`);
+    throw new Error(`GAS ${action}: תשובה ריקה (HTTP ${status})`);
   }
-  if (trimmed.startsWith("<") || /<!DOCTYPE/i.test(trimmed) || /<html/i.test(trimmed)) {
-    const looksLogin =
-      /accounts\.google\.com/i.test(trimmed) ||
-      /Sign in/i.test(trimmed) ||
-      /היכנס/i.test(trimmed) ||
-      /script.google.com/i.test(trimmed);
-    throw new Error(
-      looksLogin
-        ? `GAS החזיר דף התחברות HTML (אין הרשאת Web App). ב-Apps Script: Deploy → Manage deployments → Who has access: Anyone · Execute as: Me · New version. action=${action}`
-        : `GAS החזיר HTML במקום JSON — בדקו ש-GAS_URL מסתיים ב-/exec (לא /dev), Deploy=Anyone, ו-API_TOKEN זהה ב-Vercel וב-Script Properties. action=${action}`,
-    );
-  }
-
   let json: LooseEnvelope<T>;
   try {
     json = JSON.parse(trimmed) as LooseEnvelope<T>;
   } catch {
-    throw new Error(`GAS החזיר לא-JSON (${status}): ${trimmed.slice(0, 120)}`);
+    throw new Error(
+      `GAS ${action}: תשובה לא JSON (HTTP ${status}): ${trimmed.slice(0, 160).replace(/\s+/g, " ")}`,
+    );
   }
-
-  const failed =
-    json.ok === false ||
-    json.success === false ||
-    (typeof json.ok === "undefined" && typeof json.success === "undefined" && !!json.error);
-
-  if (failed) {
-    const err = String(json.error || `GAS ${action} נכשל`);
-    if (/unauthor/i.test(err)) {
-      throw new Error(
-        `GAS unauthorized — הגדירו API_TOKEN זהה ב-Vercel (API_TOKEN / GAS_API_TOKEN) וב-Apps Script → Project Settings → Script properties. action=${action}`,
-      );
-    }
-    if (/unknown[_ ]action/i.test(err) || json.error === "unknown_action") {
-      throw new Error(
-        `GAS unknown_action: «${action}» לא מנותב ב-Code.gs. הוסיפו case ב-doGet/doPost, ודאו ש-NewOrder.gs בפרויקט, ופרסו Deploy → New version. ראו apps-script/WIRE_NewOrder_actions.md`,
-      );
-    }
-    throw new Error(err);
+  if (json.ok === false || json.success === false) {
+    throw new Error(String(json.error || `GAS ${action} נכשל`));
   }
-
+  if (json.error && json.ok !== true && json.success !== true && json.data === undefined) {
+    throw new Error(String(json.error));
+  }
   if (json.data !== undefined) return json.data;
   const { ok: _o, success: _s, error: _e, action: _a, ...rest } = json as Record<string, unknown>;
   if (Object.keys(rest).length > 0) return rest as T;
@@ -128,6 +102,7 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
   while (res.status >= 300 && res.status < 400 && hops < 5) {
     const loc = res.headers.get("location") || res.headers.get("Location");
     if (!loc) break;
+    hops += 1;
     const next = new URL(loc, url0).toString();
     res = await fetch(next, {
       method: "POST",
@@ -135,24 +110,19 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
       headers,
       body: payload,
     });
-    hops += 1;
   }
 
   if (res.status >= 300 && res.status < 400) {
-    res = await fetch(url0, {
-      method: "POST",
-      redirect: "follow",
-      headers,
-      body: payload,
-    });
+    const loc = res.headers.get("location") || "";
+    throw new Error(`GAS ${action}: redirect לא נפתר (${res.status}) ${loc.slice(0, 80)}`);
   }
 
   const text = await res.text();
   return parseGasResponse<T>(text, res.status, action);
 }
 
-/** Bootstrap: לקוחות + אתרים + מילון (cache בצד GAS ל-5 דק׳) */
-export const getOrderBootstrapFn = createServerFn({ method: "POST" }).handler(
+/** Bootstrap: לקוחות + אתרים + מילון (cache בצד GAS ל-5 דק׳) — GET למניעת 405 */
+export const getOrderBootstrapFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<OrderBootstrapData> => {
     try {
       return await getGas<OrderBootstrapData>("getOrderBootstrapData");
