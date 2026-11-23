@@ -27,7 +27,6 @@ function apiToken(): string {
   return process.env["API_TOKEN"] || process.env["GAS_API_TOKEN"] || "";
 }
 
-/** GAS legacy uses {success,error}; NewOrder.gs uses {ok,data,error} */
 type LooseEnvelope<T> = {
   ok?: boolean;
   success?: boolean;
@@ -74,54 +73,57 @@ async function getGas<T>(action: string): Promise<T> {
   });
 
   const text = await res.text();
+  const head = text.trim().slice(0, 80).toLowerCase();
+  if (head.startsWith("<!doctype") || head.startsWith("<html")) {
+    throw new Error(
+      `GAS ${action}: HTML במקום JSON — Deploy=Anyone, URL=/exec, token תואם. ` +
+        text.slice(0, 100).replace(/\s+/g, " "),
+    );
+  }
   return parseGasResponse<T>(text, res.status, action);
 }
 
 /**
- * POST ל-GAS עם טיפול ב-302: redirect:follow על POST הופך לעיתים ל-GET
- * ומחזיר דף HTML (login / Google shell) במקום JSON.
+ * POST ל-GAS. Content-Type: text/plain — מומלץ מול Apps Script.
+ * redirect: follow (אחרי 302 googleusercontent מקבלים את ה-JSON).
  */
 async function postGas<T>(action: string, body: Record<string, unknown>): Promise<T> {
   const token = apiToken();
   const payload = JSON.stringify({ ...body, action, token });
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
+    "Content-Type": "text/plain;charset=utf-8",
+    Accept: "application/json, text/plain, */*",
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const url0 = gasUrl();
-  let res = await fetch(url0, {
+  if (!/\/exec\b/i.test(url0) || /\/dev\b/i.test(url0)) {
+    throw new Error(
+      `GAS_URL חייב להסתיים ב-/exec (לא /dev). ערך נוכחי: ${url0.slice(0, 80)}…`,
+    );
+  }
+
+  const res = await fetch(url0, {
     method: "POST",
-    redirect: "manual",
+    redirect: "follow",
     headers,
     body: payload,
   });
 
-  let hops = 0;
-  while (res.status >= 300 && res.status < 400 && hops < 5) {
-    const loc = res.headers.get("location") || res.headers.get("Location");
-    if (!loc) break;
-    hops += 1;
-    const next = new URL(loc, url0).toString();
-    res = await fetch(next, {
-      method: "POST",
-      redirect: "manual",
-      headers,
-      body: payload,
-    });
-  }
-
-  if (res.status >= 300 && res.status < 400) {
-    const loc = res.headers.get("location") || "";
-    throw new Error(`GAS ${action}: redirect לא נפתר (${res.status}) ${loc.slice(0, 80)}`);
-  }
-
   const text = await res.text();
+  const head = text.trim().slice(0, 80).toLowerCase();
+  if (head.startsWith("<!doctype") || head.startsWith("<html") || head.includes("<title>")) {
+    throw new Error(
+      `GAS החזיר HTML במקום JSON — בדקו: GAS_URL מסתיים ב-/exec (לא /dev), ` +
+        `Deploy=Anyone, API_TOKEN זהה ב-Vercel וב-Script Properties, ` +
+        `וש-doPost מנתב action=${action} (NewOrder.gs). ` +
+        `תחילת תשובה: ${text.slice(0, 120).replace(/\s+/g, " ")}`,
+    );
+  }
   return parseGasResponse<T>(text, res.status, action);
 }
 
-/** Bootstrap: לקוחות + אתרים + מילון (cache בצד GAS ל-5 דק׳) — GET למניעת 405 */
+/** Bootstrap: לקוחות + אתרים + מילון — GET */
 export const getOrderBootstrapFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<OrderBootstrapData> => {
     try {
