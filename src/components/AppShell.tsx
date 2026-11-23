@@ -82,6 +82,10 @@ const EDGE_PX = 28;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
+  /** פורטל לקוח קצה — ללא תפריט ניהול מאובטח */
+  if (pathname === "/portal" || pathname.startsWith("/portal/")) {
+    return <>{children}</>;
+  }
   const { theme, toggleTheme } = useTheme();
   const [moreOpen, setMoreOpen] = useState(false);
 
