@@ -73,38 +73,23 @@ function resolveProductImage(p: ProductWithImage): string {
   const raw = String(p.imageUrl || p.image_url || "").trim();
   if (!raw) return "";
   const driveMatch =
-    raw.match(/drive\.google\.com\/file\/d\/([^/?#]+)/i) ||
-    raw.match(/drive\.google\.com\/open\?id=([^&#]+)/i);
-  if (driveMatch?.[1]) {
-    return `https://drive.google.com/thumbnail?id=${driveMatch[1]}&sz=w240`;
+    raw.match(/\/file\/d\/([a-zA-Z0-9_-]+)/i) ||
+    raw.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+  if (driveMatch?.[1] && /drive\.google\.com/i.test(raw)) {
+    return `https://lh3.googleusercontent.com/d/${driveMatch[1]}=s240`;
   }
   return raw;
 }
 
-function normalizeImageUrl(raw?: string): string {
-  const url = String(raw || "").trim();
-  if (!url) return "";
-  // המרה אוטומטית של קישורי Google Drive לתמונה ישירה
-  const driveMatch =
-    url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) ||
-    url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-  if (driveMatch && /drive\.google\.com/i.test(url)) {
-    return `https://lh3.googleusercontent.com/d/${driveMatch[1]}=s200`;
-  }
-  return url;
-}
-
 function ProductThumb({
-  imageUrl,
-  alt,
+  product,
   size = "md",
 }: {
-  imageUrl?: string;
-  alt: string;
+  product: ProductWithImage;
   size?: "sm" | "md";
 }) {
   const [broken, setBroken] = useState(false);
-  const src = useMemo(() => normalizeImageUrl(imageUrl), [imageUrl]);
+  const src = useMemo(() => resolveProductImage(product), [product]);
   const dim = size === "sm" ? "h-10 w-10" : "h-12 w-12";
 
   if (!src || broken) {
@@ -123,27 +108,13 @@ function ProductThumb({
   return (
     <img
       src={src}
-      alt={alt}
+      alt={product.officialName}
       loading="lazy"
       referrerPolicy="no-referrer"
       onError={() => setBroken(true)}
       className={cn(
         dim,
         "shrink-0 rounded-xl border border-[#DCE6EF] bg-white object-contain p-1",
-      )}
-    />
-  );
-}
-
-  return (
-    <img
-      src={src}
-      alt={product.officialName}
-      loading="lazy"
-      onError={() => setBroken(true)}
-      className={cn(
-        boxClass,
-        "shrink-0 border border-[#DCE6EF] bg-white object-contain p-1",
       )}
     />
   );
