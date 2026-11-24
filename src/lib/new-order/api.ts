@@ -84,16 +84,18 @@ async function getGas<T>(action: string): Promise<T> {
 }
 
 /**
- * POST ל-GAS — תואם את דפוס ContentService:
- * 1) POST ל-/exec (302)
- * 2) GET ל-Location (googleusercontent) → JSON
+ * POST ל-GAS — דפוס ContentService הרשמי:
+ * 1) POST ל-/exec → 302 Found + Location
+ * 2) GET נקי ל-Location (בלי body / Content-Type / Content-Length) → JSON
+ *
+ * אסור: redirect:"follow" על ה-POST (curl -L) — ממשיך POST בלי Length → 411 HTML.
+ * חייב לרוץ בשרת (createServerFn), לא בדפדפן — Location חשוף רק ב-server fetch.
  */
 async function postGas<T>(action: string, body: Record<string, unknown>): Promise<T> {
   const token = apiToken();
   const payload = JSON.stringify({ ...body, action, token });
-  const headers: Record<string, string> = {
+  const postHeaders: Record<string, string> = {
     "Content-Type": "text/plain;charset=utf-8",
-    Accept: "application/json, text/plain, */*",
   };
 
   const url0 = gasUrl();
@@ -103,35 +105,36 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
     );
   }
 
+  // שלב 1: POST בלי follow
   let res = await fetch(url0, {
     method: "POST",
     redirect: "manual",
-    headers,
+    headers: postHeaders,
     body: payload,
   });
 
-  // עקיבת 302/301 ידנית ב-GET (ככה ContentService מחזיר את הגוף)
+  // שלב 2: עקיבת 302 — תמיד GET נקי (בלי body / Content-Type / Content-Length)
   let hops = 0;
-  while (res.status >= 300 && res.status < 400 && hops < 6) {
+  while (res.status >= 300 && res.status < 400 && hops < 8) {
     const loc = res.headers.get("location") || res.headers.get("Location");
-    if (!loc) break;
+    if (!loc) {
+      throw new Error(
+        `GAS ${action}: HTTP ${res.status} בלי כותרת Location. ` +
+          `ודאו שהקריאה רצה בשרת Vercel (לא בדפדפן).`,
+      );
+    }
     hops += 1;
     const next = new URL(loc, url0).toString();
     res = await fetch(next, {
       method: "GET",
       redirect: "manual",
-      headers: { Accept: "application/json, text/plain, */*" },
     });
   }
 
-  // גיבוי: follow מלא אם עדיין redirect
   if (res.status >= 300 && res.status < 400) {
-    res = await fetch(url0, {
-      method: "POST",
-      redirect: "follow",
-      headers,
-      body: payload,
-    });
+    throw new Error(
+      `GAS ${action}: יותר מדי redirects (${hops}) בלי JSON. HTTP ${res.status}`,
+    );
   }
 
   const text = await res.text();
@@ -143,6 +146,8 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
   }
 
   if (
+    head.includes("length required") ||
+    head.includes("411") ||
     head.startsWith("<!doctype") ||
     head.startsWith("<html") ||
     head.includes("<title>") ||
@@ -150,10 +155,10 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
     head.includes("accounts.google")
   ) {
     throw new Error(
-      `GAS ${action}: התקבלה תשובת HTML (בדרך כלל redirect/הרשאה). ` +
-        `ודאו Deploy=Anyone, New version אחרי ניתוב injectNewOrder ב-doPost, ` +
-        `ו-NewOrder.gs בפרויקט. HTTP ${res.status}. ` +
-        `תחילת תשובה: ${trimmed.slice(0, 100).replace(/\s+/g, " ")}`,
+      `GAS ${action}: תשובת HTML/411 במקום JSON (HTTP ${res.status}). ` +
+        `בדקו ש-postGas עושה GET נקי ל-Location אחרי 302, ` +
+        `וש-doPost מנתב ${action}. ` +
+        `תחילה: ${trimmed.slice(0, 100).replace(/\s+/g, " ")}`,
     );
   }
 
