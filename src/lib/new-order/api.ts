@@ -15,16 +15,16 @@ import type {
 const DEFAULT_GAS_URL =
   process.env["GAS_URL"] ||
   process.env["VITE_SHEETS_ORDERS_URL"] ||
-  "https://script.google.com/macros/s/AKfycbzGOG7GxiXkT-OtUw4obBvGkyw_wKRhv2Jjf4I8qbLATIIMKAN099UHJqqYjdfKV-WwWw/exec";
+  "https://script.google.com/macros/s/AKfycbzDBD835D-1R6RRRZ6prbP3FOz1ChIg7HK5WiImHOhoBQ1Jstant4wZQWBQtnq4apYmEA/exec";
 
 function gasUrl(): string {
-  const url = process.env["GAS_URL"] || process.env["VITE_SHEETS_ORDERS_URL"] || DEFAULT_GAS_URL;
+  const url = (process.env["GAS_URL"] || process.env["VITE_SHEETS_ORDERS_URL"] || DEFAULT_GAS_URL).trim();
   if (!url) throw new Error("GAS_URL לא מוגדר בשרת");
   return url;
 }
 
 function apiToken(): string {
-  return process.env["API_TOKEN"] || process.env["GAS_API_TOKEN"] || "";
+  return (process.env["API_TOKEN"] || process.env["GAS_API_TOKEN"] || "").trim();
 }
 
 /** GAS legacy uses {success,error}; NewOrder.gs uses {ok,data,error} */
@@ -104,23 +104,27 @@ async function getGas<T>(action: string): Promise<T> {
 }
 
 /**
- * POST ל-GAS עם טיפול ב-302: redirect:follow על POST הופך לעיתים ל-GET
- * ומחזיר דף HTML (login / Google shell) במקום JSON.
+ * POST ל-GAS עם טיפול מדויק ב-302:
+ * Google Apps Script מריץ את doPost ומחזיר 302 ל-script.googleusercontent.com/macros/echo.
+ * חובה לשלוח GET נקי (ללא body וללא Content-Type) לכתובת ה-Location כדי לקבל את ה-JSON.
  */
 async function postGas<T>(action: string, body: Record<string, unknown>): Promise<T> {
   const token = apiToken();
   const payload = JSON.stringify({ ...body, action, token });
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+  const contentLength = Buffer.byteLength(payload, "utf8").toString();
+
+  const postHeaders: Record<string, string> = {
+    "Content-Type": "text/plain;charset=utf-8",
+    "Content-Length": contentLength,
     Accept: "application/json",
   };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) postHeaders.Authorization = `Bearer ${token}`;
 
   const url0 = gasUrl();
   let res = await fetch(url0, {
     method: "POST",
     redirect: "manual",
-    headers,
+    headers: postHeaders,
     body: payload,
   });
 
@@ -128,23 +132,17 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
   while (res.status >= 300 && res.status < 400 && hops < 5) {
     const loc = res.headers.get("location") || res.headers.get("Location");
     if (!loc) break;
-    const next = new URL(loc, url0).toString();
-    res = await fetch(next, {
-      method: "POST",
+    const nextUrl = new URL(loc, url0).toString();
+
+    // מעבר ל-GET נקי ללא body וללא כותרות POST (מונע 411/405/HTML מ-googleusercontent)
+    res = await fetch(nextUrl, {
+      method: "GET",
       redirect: "manual",
-      headers,
-      body: payload,
+      headers: {
+        Accept: "application/json, text/plain, */*",
+      },
     });
     hops += 1;
-  }
-
-  if (res.status >= 300 && res.status < 400) {
-    res = await fetch(url0, {
-      method: "POST",
-      redirect: "follow",
-      headers,
-      body: payload,
-    });
   }
 
   const text = await res.text();
