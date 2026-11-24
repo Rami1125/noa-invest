@@ -13,12 +13,14 @@ import type {
 } from "./types";
 
 const DEFAULT_GAS_URL =
-  process.env["GAS_URL"] ||
-  process.env["VITE_SHEETS_ORDERS_URL"] ||
   "https://script.google.com/macros/s/AKfycbzDBD835D-1R6RRRZ6prbP3FOz1ChIg7HK5WiImHOhoBQ1Jstant4wZQWBQtnq4apYmEA/exec";
 
 function gasUrl(): string {
-  const url = (process.env["GAS_URL"] || process.env["VITE_SHEETS_ORDERS_URL"] || DEFAULT_GAS_URL).trim();
+  const url = (
+    process.env["GAS_URL"] ||
+    process.env["VITE_SHEETS_ORDERS_URL"] ||
+    DEFAULT_GAS_URL
+  ).trim();
   if (!url) throw new Error("GAS_URL לא מוגדר בשרת");
   return url;
 }
@@ -36,21 +38,28 @@ type LooseEnvelope<T> = {
   action?: string;
 };
 
-function parseGasResponse<T>(text: string, status: number, action: string): T {
+function parseGasResponse<T>(
+  text: string,
+  status: number,
+  action: string,
+  debugUrl?: string,
+): T {
   const trimmed = text.trim();
   if (!trimmed) {
-    throw new Error(`GAS ${action}: תשובה ריקה (${status})`);
+    throw new Error(`GAS ${action}: תשובה ריקה (${status}) URL=${debugUrl || ""}`);
   }
   if (trimmed.startsWith("<") || /<!DOCTYPE/i.test(trimmed) || /<html/i.test(trimmed)) {
+    const titleMatch = trimmed.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const pageTitle = titleMatch ? titleMatch[1].replace(/\s+/g, " ").trim() : "ללא כותרת";
     const looksLogin =
       /accounts\.google\.com/i.test(trimmed) ||
       /Sign in/i.test(trimmed) ||
-      /היכנס/i.test(trimmed) ||
-      /script.google.com/i.test(trimmed);
+      /היכנס/i.test(trimmed);
+
     throw new Error(
       looksLogin
-        ? `GAS החזיר דף התחברות HTML (אין הרשאת Web App). ב-Apps Script: Deploy → Manage deployments → Who has access: Anyone · Execute as: Me · New version. action=${action}`
-        : `GAS החזיר HTML במקום JSON — בדקו ש-GAS_URL מסתיים ב-/exec (לא /dev), Deploy=Anyone, ו-API_TOKEN זהה ב-Vercel וב-Script Properties. action=${action}`,
+        ? `GAS החזיר דף התחברות HTML (${pageTitle}). ב-Apps Script: Deploy → Manage deployments → Who has access: Anyone · Execute as: Me · New version. action=${action}`
+        : `GAS החזיר HTML במקום JSON (status=${status}, title="${pageTitle}") | action=${action} | URL=${debugUrl || ""}`,
     );
   }
 
@@ -75,7 +84,7 @@ function parseGasResponse<T>(text: string, status: number, action: string): T {
     }
     if (/unknown[_ ]action/i.test(err) || json.error === "unknown_action") {
       throw new Error(
-        `GAS unknown_action: «${action}» לא מנותב ב-Code.gs. הוסיפו case ב-doGet/doPost, ודאו ש-NewOrder.gs בפרויקט, ופרסו Deploy → New version. ראו apps-script/WIRE_NewOrder_actions.md`,
+        `GAS unknown_action: «${action}» לא מנותב ב-Code.gs. הוסיפו case ב-doGet/doPost, ודאו ש-NewOrder.gs בפרויקט, ופרסו Deploy → New version.`,
       );
     }
     throw new Error(err);
@@ -93,14 +102,15 @@ async function getGas<T>(action: string): Promise<T> {
   const token = apiToken();
   if (token) url.searchParams.set("token", token);
 
-  const res = await fetch(url.toString(), {
+  const targetUrl = url.toString();
+  const res = await fetch(targetUrl, {
     method: "GET",
     redirect: "follow",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 
   const text = await res.text();
-  return parseGasResponse<T>(text, res.status, action);
+  return parseGasResponse<T>(text, res.status, action, res.url || targetUrl);
 }
 
 /**
@@ -128,14 +138,14 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
     body: payload,
   });
 
+  let currentUrl = url0;
   let hops = 0;
   while (res.status >= 300 && res.status < 400 && hops < 5) {
     const loc = res.headers.get("location") || res.headers.get("Location");
     if (!loc) break;
-    const nextUrl = new URL(loc, url0).toString();
+    currentUrl = new URL(loc, currentUrl).toString();
 
-    // מעבר ל-GET נקי ללא body וללא כותרות POST (מונע 411/405/HTML מ-googleusercontent)
-    res = await fetch(nextUrl, {
+    res = await fetch(currentUrl, {
       method: "GET",
       redirect: "manual",
       headers: {
@@ -146,7 +156,7 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
   }
 
   const text = await res.text();
-  return parseGasResponse<T>(text, res.status, action);
+  return parseGasResponse<T>(text, res.status, action, currentUrl);
 }
 
 /** Bootstrap: לקוחות + אתרים + מילון (cache בצד GAS ל-5 דק׳) */
