@@ -43,6 +43,8 @@ export type DictProduct = {
   weightKgPerUnit: number;
   defaultWarehouse: WarehouseCode;
   recommendedDriver: RecommendedDriver;
+  imageUrl?: string;
+  mediaCode?: string;
 };
 
 export type CartLine = {
