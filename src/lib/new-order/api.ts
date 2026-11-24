@@ -29,7 +29,6 @@ function apiToken(): string {
   return (process.env["API_TOKEN"] || process.env["GAS_API_TOKEN"] || "").trim();
 }
 
-/** GAS legacy uses {success,error}; NewOrder.gs uses {ok,data,error} */
 type LooseEnvelope<T> = {
   ok?: boolean;
   success?: boolean;
@@ -51,15 +50,8 @@ function parseGasResponse<T>(
   if (trimmed.startsWith("<") || /<!DOCTYPE/i.test(trimmed) || /<html/i.test(trimmed)) {
     const titleMatch = trimmed.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
     const pageTitle = titleMatch ? titleMatch[1].replace(/\s+/g, " ").trim() : "ללא כותרת";
-    const looksLogin =
-      /accounts\.google\.com/i.test(trimmed) ||
-      /Sign in/i.test(trimmed) ||
-      /היכנס/i.test(trimmed);
-
     throw new Error(
-      looksLogin
-        ? `GAS החזיר דף התחברות HTML (${pageTitle}). ב-Apps Script: Deploy → Manage deployments → Who has access: Anyone · Execute as: Me · New version. action=${action}`
-        : `GAS החזיר HTML במקום JSON (status=${status}, title="${pageTitle}") | action=${action} | URL=${debugUrl || ""}`,
+      `GAS HTML [v2-diag] (status=${status}, title="${pageTitle}") | action=${action} | URL=${debugUrl || ""}`,
     );
   }
 
@@ -78,14 +70,7 @@ function parseGasResponse<T>(
   if (failed) {
     const err = String(json.error || `GAS ${action} נכשל`);
     if (/unauthor/i.test(err)) {
-      throw new Error(
-        `GAS unauthorized — הגדירו API_TOKEN זהה ב-Vercel (API_TOKEN / GAS_API_TOKEN) וב-Apps Script → Project Settings → Script properties. action=${action}`,
-      );
-    }
-    if (/unknown[_ ]action/i.test(err) || json.error === "unknown_action") {
-      throw new Error(
-        `GAS unknown_action: «${action}» לא מנותב ב-Code.gs. הוסיפו case ב-doGet/doPost, ודאו ש-NewOrder.gs בפרויקט, ופרסו Deploy → New version.`,
-      );
+      throw new Error(`GAS unauthorized (בדוק API_TOKEN). action=${action}`);
     }
     throw new Error(err);
   }
@@ -96,11 +81,16 @@ function parseGasResponse<T>(
   throw new Error(`GAS ${action}: אין data בתשובה`);
 }
 
-async function getGas<T>(action: string): Promise<T> {
+async function getGas<T>(action: string, extraParams?: Record<string, string>): Promise<T> {
   const url = new URL(gasUrl());
   url.searchParams.set("action", action);
   const token = apiToken();
   if (token) url.searchParams.set("token", token);
+  if (extraParams) {
+    for (const [k, v] of Object.entries(extraParams)) {
+      url.searchParams.set(k, v);
+    }
+  }
 
   const targetUrl = url.toString();
   const res = await fetch(targetUrl, {
@@ -113,11 +103,6 @@ async function getGas<T>(action: string): Promise<T> {
   return parseGasResponse<T>(text, res.status, action, res.url || targetUrl);
 }
 
-/**
- * POST ל-GAS עם טיפול מדויק ב-302:
- * Google Apps Script מריץ את doPost ומחזיר 302 ל-script.googleusercontent.com/macros/echo.
- * חובה לשלוח GET נקי (ללא body וללא Content-Type) לכתובת ה-Location כדי לקבל את ה-JSON.
- */
 async function postGas<T>(action: string, body: Record<string, unknown>): Promise<T> {
   const token = apiToken();
   const payload = JSON.stringify({ ...body, action, token });
@@ -159,7 +144,6 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
   return parseGasResponse<T>(text, res.status, action, currentUrl);
 }
 
-/** Bootstrap: לקוחות + אתרים + מילון (cache בצד GAS ל-5 דק׳) */
 export const getOrderBootstrapFn = createServerFn({ method: "POST" }).handler(
   async (): Promise<OrderBootstrapData> => {
     try {
@@ -177,9 +161,20 @@ export const getOrderBootstrapFn = createServerFn({ method: "POST" }).handler(
 export const injectNewOrderFn = createServerFn({ method: "POST" })
   .inputValidator((d: InjectNewOrderPayload) => d)
   .handler(async ({ data }): Promise<InjectNewOrderResult> => {
-    return await postGas<InjectNewOrderResult>("injectNewOrder", {
-      ...(data as unknown as Record<string, unknown>),
-    });
+    const raw = data as unknown as Record<string, unknown>;
+    try {
+      return await postGas<InjectNewOrderResult>("injectNewOrder", raw);
+    } catch (postErr) {
+      // גיבוי דרך GET אם אין קובץ מצורף כבד (עוקף לחלוטין בעיות 302 POST)
+      if (!raw.attachment) {
+        const cleanPayload = { ...raw };
+        delete cleanPayload.attachment;
+        return await getGas<InjectNewOrderResult>("injectNewOrder", {
+          payload: JSON.stringify(cleanPayload),
+        });
+      }
+      throw postErr;
+    }
   });
 
 export const updateOrderCustomerNumberFn = createServerFn({ method: "POST" })
