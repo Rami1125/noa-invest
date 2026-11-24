@@ -84,8 +84,9 @@ async function getGas<T>(action: string): Promise<T> {
 }
 
 /**
- * POST ל-GAS. Content-Type: text/plain — מומלץ מול Apps Script.
- * redirect: follow (אחרי 302 googleusercontent מקבלים את ה-JSON).
+ * POST ל-GAS — תואם את דפוס ContentService:
+ * 1) POST ל-/exec (302)
+ * 2) GET ל-Location (googleusercontent) → JSON
  */
 async function postGas<T>(action: string, body: Record<string, unknown>): Promise<T> {
   const token = apiToken();
@@ -94,7 +95,6 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
     "Content-Type": "text/plain;charset=utf-8",
     Accept: "application/json, text/plain, */*",
   };
-  if (token) headers.Authorization = `Bearer ${token}`;
 
   const url0 = gasUrl();
   if (!/\/exec\b/i.test(url0) || /\/dev\b/i.test(url0)) {
@@ -103,23 +103,60 @@ async function postGas<T>(action: string, body: Record<string, unknown>): Promis
     );
   }
 
-  const res = await fetch(url0, {
+  let res = await fetch(url0, {
     method: "POST",
-    redirect: "follow",
+    redirect: "manual",
     headers,
     body: payload,
   });
 
+  // עקיבת 302/301 ידנית ב-GET (ככה ContentService מחזיר את הגוף)
+  let hops = 0;
+  while (res.status >= 300 && res.status < 400 && hops < 6) {
+    const loc = res.headers.get("location") || res.headers.get("Location");
+    if (!loc) break;
+    hops += 1;
+    const next = new URL(loc, url0).toString();
+    res = await fetch(next, {
+      method: "GET",
+      redirect: "manual",
+      headers: { Accept: "application/json, text/plain, */*" },
+    });
+  }
+
+  // גיבוי: follow מלא אם עדיין redirect
+  if (res.status >= 300 && res.status < 400) {
+    res = await fetch(url0, {
+      method: "POST",
+      redirect: "follow",
+      headers,
+      body: payload,
+    });
+  }
+
   const text = await res.text();
-  const head = text.trim().slice(0, 80).toLowerCase();
-  if (head.startsWith("<!doctype") || head.startsWith("<html") || head.includes("<title>")) {
+  const trimmed = text.trim();
+  const head = trimmed.slice(0, 120).toLowerCase();
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return parseGasResponse<T>(text, res.status, action);
+  }
+
+  if (
+    head.startsWith("<!doctype") ||
+    head.startsWith("<html") ||
+    head.includes("<title>") ||
+    head.includes("sign in") ||
+    head.includes("accounts.google")
+  ) {
     throw new Error(
-      `GAS החזיר HTML במקום JSON — בדקו: GAS_URL מסתיים ב-/exec (לא /dev), ` +
-        `Deploy=Anyone, API_TOKEN זהה ב-Vercel וב-Script Properties, ` +
-        `וש-doPost מנתב action=${action} (NewOrder.gs). ` +
-        `תחילת תשובה: ${text.slice(0, 120).replace(/\s+/g, " ")}`,
+      `GAS ${action}: התקבלה תשובת HTML (בדרך כלל redirect/הרשאה). ` +
+        `ודאו Deploy=Anyone, New version אחרי ניתוב injectNewOrder ב-doPost, ` +
+        `ו-NewOrder.gs בפרויקט. HTTP ${res.status}. ` +
+        `תחילת תשובה: ${trimmed.slice(0, 100).replace(/\s+/g, " ")}`,
     );
   }
+
   return parseGasResponse<T>(text, res.status, action);
 }
 
