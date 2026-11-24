@@ -81,23 +81,59 @@ function resolveProductImage(p: ProductWithImage): string {
   return raw;
 }
 
-function ProductThumb({ product, size = "md" }: { product: DictProduct; size?: "sm" | "md" }) {
+function normalizeImageUrl(raw?: string): string {
+  const url = String(raw || "").trim();
+  if (!url) return "";
+  // המרה אוטומטית של קישורי Google Drive לתמונה ישירה
+  const driveMatch =
+    url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) ||
+    url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (driveMatch && /drive\.google\.com/i.test(url)) {
+    return `https://lh3.googleusercontent.com/d/${driveMatch[1]}=s200`;
+  }
+  return url;
+}
+
+function ProductThumb({
+  imageUrl,
+  alt,
+  size = "md",
+}: {
+  imageUrl?: string;
+  alt: string;
+  size?: "sm" | "md";
+}) {
   const [broken, setBroken] = useState(false);
-  const src = useMemo(() => resolveProductImage(product as ProductWithImage), [product]);
-  const boxClass = size === "sm" ? "h-10 w-10 rounded-lg" : "h-12 w-12 rounded-xl";
+  const src = useMemo(() => normalizeImageUrl(imageUrl), [imageUrl]);
+  const dim = size === "sm" ? "h-10 w-10" : "h-12 w-12";
 
   if (!src || broken) {
     return (
       <div
         className={cn(
-          boxClass,
-          "flex shrink-0 items-center justify-center border border-[#DCE6EF] bg-[#F3F7FB] text-[#9FB3C8]",
+          dim,
+          "flex shrink-0 items-center justify-center rounded-xl border border-[#DCE6EF] bg-[#F3F7FB] text-[#9FB3C8]",
         )}
       >
-        <Package className={size === "sm" ? "h-4 w-4" : "h-5 w-5"} />
+        <Package className="h-5 w-5" />
       </div>
     );
   }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setBroken(true)}
+      className={cn(
+        dim,
+        "shrink-0 rounded-xl border border-[#DCE6EF] bg-white object-contain p-1",
+      )}
+    />
+  );
+}
 
   return (
     <img
