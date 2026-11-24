@@ -1,6 +1,6 @@
 /**
  * פורטל לקוח קצה — עיצוב מחודש מלא
- * נעילת סשן · היסטוריית הזמנות · תעודות משלוח · שכפול/עריכה · וואטסאפ מעוצב
+ * נעילת סשן · היסטוריית הזמנות · תעודות משלוח · שכפול/עריכה · וואטסאפ מעוצב · תמונות מוצר
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -61,11 +61,56 @@ import { cn } from "@/lib/utils";
 
 type PortalTab = "order" | "history" | "notes";
 type OrderStep = 1 | 2 | 3 | 4;
+type ProductWithImage = DictProduct & { imageUrl?: string; image_url?: string };
 
 const QUICK_HINTS = ["מלט", "סומסום", "חול", "דבק", "בלוק", "גבס", "טיח"];
 
 function onlyDigits(s: string): string {
   return String(s || "").replace(/\D/g, "");
+}
+
+function resolveProductImage(p: ProductWithImage): string {
+  const raw = String(p.imageUrl || p.image_url || "").trim();
+  if (!raw) return "";
+  const driveMatch =
+    raw.match(/drive\.google\.com\/file\/d\/([^/?#]+)/i) ||
+    raw.match(/drive\.google\.com\/open\?id=([^&#]+)/i);
+  if (driveMatch?.[1]) {
+    return `https://drive.google.com/thumbnail?id=${driveMatch[1]}&sz=w240`;
+  }
+  return raw;
+}
+
+function ProductThumb({ product, size = "md" }: { product: DictProduct; size?: "sm" | "md" }) {
+  const [broken, setBroken] = useState(false);
+  const src = useMemo(() => resolveProductImage(product as ProductWithImage), [product]);
+  const boxClass = size === "sm" ? "h-10 w-10 rounded-lg" : "h-12 w-12 rounded-xl";
+
+  if (!src || broken) {
+    return (
+      <div
+        className={cn(
+          boxClass,
+          "flex shrink-0 items-center justify-center border border-[#DCE6EF] bg-[#F3F7FB] text-[#9FB3C8]",
+        )}
+      >
+        <Package className={size === "sm" ? "h-4 w-4" : "h-5 w-5"} />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={product.officialName}
+      loading="lazy"
+      onError={() => setBroken(true)}
+      className={cn(
+        boxClass,
+        "shrink-0 border border-[#DCE6EF] bg-white object-contain p-1",
+      )}
+    />
+  );
 }
 
 function findByPhone(customers: OrderCustomer[], phone: string): OrderCustomer | null {
@@ -359,6 +404,7 @@ export function CustomerOrderPortal() {
         ...res,
         whatsappMessage: res.whatsappMessage || buildWaText(kind, res.orderId),
       });
+      void ordersQ.refetch();
       setStep(4);
       setOrderKind("new");
       setEditingOrderId(null);
@@ -799,8 +845,9 @@ export function CustomerOrderPortal() {
                   {filteredProducts.map((p) => (
                     <div
                       key={p.sku}
-                      className="flex items-center gap-2 rounded-2xl border border-[#DCE6EF] bg-white px-3 py-2 shadow-sm"
+                      className="flex items-center gap-3 rounded-2xl border border-[#DCE6EF] bg-white px-3 py-2 shadow-sm"
                     >
+                      <ProductThumb product={p} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-extrabold">{p.officialName}</p>
                         <p className="text-[11px] text-[#486581]">
@@ -846,7 +893,8 @@ export function CustomerOrderPortal() {
                   )}
                   <ul className="mt-2 space-y-2">
                     {lines.map((l) => (
-                      <li key={l.key} className="flex items-center gap-2 rounded-xl border border-[#F0F4F8] px-2 py-2">
+                      <li key={l.key} className="flex items-center gap-2.5 rounded-xl border border-[#F0F4F8] px-2 py-2">
+                        <ProductThumb product={l.product} size="sm" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-bold">{l.product.officialName}</p>
                           <p className="text-[11px] text-[#486581]" dir="ltr">
