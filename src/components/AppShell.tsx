@@ -66,6 +66,38 @@ export function PageHeader({
   );
 }
 
+/** Audit status pill — used by NotesArchive and note detail */
+export function StatusPill({ s }: { s: "ok" | "warn" | "fail" | string }) {
+  const map: Record<string, { label: string; className: string }> = {
+    ok: {
+      label: "תקין",
+      className: "border-emerald-500/40 bg-emerald-500/15 text-emerald-800",
+    },
+    warn: {
+      label: "לתשומת לב",
+      className: "border-amber-500/40 bg-amber-500/15 text-amber-900",
+    },
+    fail: {
+      label: "חריגה",
+      className: "border-rose-500/40 bg-rose-500/15 text-rose-800",
+    },
+  };
+  const item = map[s] || {
+    label: String(s || "—"),
+    className: "border-[#102A43]/15 bg-[#102A43]/5 text-[#102A43]",
+  };
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold",
+        item.className,
+      )}
+    >
+      {item.label}
+    </span>
+  );
+}
+
 function NavLink({ to, label, icon: Icon }: { to: string; label: string; icon: LucideIcon }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
